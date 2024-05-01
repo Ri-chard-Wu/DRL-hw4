@@ -4,3 +4,4 @@ gym>=0.10.4
 msgpack>=0.6.1
 msgpack-numpy>=0.4.4.3
 scipy
+tensorflow

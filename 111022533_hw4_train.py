@@ -1,749 +1,109 @@
 
+ 
+import numpy as np
+  
+import tensorflow.keras.backend as K
+import tensorflow as tf
+ 
+from importlib import import_module
 
-from osim.env import L2M2019Env
-
-
-
-env = L2M2019Env(visualize=True)
-observation = env.reset()
-
-for i in range(200):
-    observation, reward, done, info = env.step(env.action_space.sample())
-
-    # print(f'reward: {reward}, info: {info}')
-
+from env_wrappers import *
+ 
+# from train import learn
 
 
-# import gym
-# import gym_multi_car_racing 
-# import numpy as np
-# from multiprocessing import Process, Pipe
-# from collections import deque
 
-# import tensorflow.keras.backend as K
-# import tensorflow as tf
-# import importlib
-# import shutil
-# import cv2
-# import os
-# import sys
-# from PIL import Image 
+# from osim.env import L2M2019Env
+ 
+# env = L2M2019Env(visualize=False) 
+# print(f'env.observation_space: {env.observation_space}')
+# print(f'env.action_space: {env.action_space}')
+# print(f"getattr(env, 'v_tgt_field_size', 0): {getattr(env, 'v_tgt_field_size', 0)}")
+# print(f'env.spec: {env.spec}')
  
 
-
-# num_actions = 3
-# a_min = np.array([-1.0,  0.0,  0.0])
-# a_max = np.array([1.0, 1.0, 1.0])
-
+# exit()
  
+
+class AttrDict(dict):
+    def __getattr__(self, a):        
+        return self[a]
   
 
-# class AttrDict(dict):
-#     def __getattr__(self, a):
-#         return self[a]
- 
-
-
-
-
-# para = AttrDict({
+args = AttrDict({
     
-#     'k': 4,
-#     'skip': 2,
-#     'img_shape': (84, 84),
+    'k': 4,   
+    'n_env': 4,
+    'max_episode_length': 625,
 
 
-#     'lr': 1e-4,
-#     'gamma': 0.99,
-#     'gae_lambda': 0.95,
-#     'ppo_clip': 0.1,
-#     'w_ent': 0.01,    
-#     'epochs': 20,
-#     'n_iters': int(1e7),
-#     'batch_size': 512,
-
-#     'horizon': 256,
-#     'n_envs': 8,
-#     'groups': 1,
-
-#     'save_period': 20,  
-#     'eval_period': 20,    
-#     'log_period': 5,
-
-#     'a_std': [0.25, 0.15, 0.15], 
-
-#     'ckpt_save_path': "ckpt/checkpoint13-4.h5",
-#     # 'ckpt_load_path': "ckpt/checkpoint12-2.h5"
-#     'ckpt_load_path': "ckpt/eval-320.h5"
-# })
-
-
-
-# class SingleCarEnv:
-#     def __init__(self, env):   
-#         self.env = env  
-        
-#     def step(self, action):    
-#         obs, reward, done, info = self.env.step(action)                      
-#         return np.squeeze(obs), reward[0], done, info
- 
-#     def reset(self): 
-#         obs = self.env.reset()
-#         return np.squeeze(obs)
-
- 
-# class FrameSkipEnv:
-#     def __init__(self, env):   
-#         self.env = env 
-#         self.skip = para.skip
-        
-#     def step(self, action):
-  
-#         cum_reward = 0
-
-#         for i in range(self.skip):
-        
-#             obs, reward, done, info = self.env.step(action)                
-#             cum_reward += reward
-#             if done: break
-
-#         return obs, cum_reward, done, info
- 
-#     def reset(self):
-#         obs = self.env.reset()     
-#         return obs
-
-
-
-
-
-# def save_frame(dir_name, name, frame):
-#     if(not os.path.exists(dir_name)):
-#         os.mkdir(dir_name)    
+    'batch_size': 256,
     
-#     # print(f'############# frame.shape: {frame.shape}')
-#     frame = np.squeeze(frame)
-#     img = Image.fromarray(frame)
-#     img.save(os.path.join(dir_name, name))        
+    'memory_size': int(1e6),
+    'n_prefill_steps': 1000,
 
+    'seed': 1,
+})
 
-
-# def make_env():
-#     env = gym.make("MultiCarRacing-v0", num_agents=1, direction='CCW',
-#         use_random_direction=True, backwards_flag=True, h_ratio=0.25,
-#         use_ego_color=False)    
-
-#     env = SingleCarEnv(env)
-#     env =  FrameSkipEnv(env)
-#     return env
  
+
+alg_args = {'policy_hidden_sizes': (256, 256),
+            'value_hidden_sizes': (256, 256),
+            'q_hidden_sizes': (256, 256),
+            'discount': 0.96,
+            'tau': 0.01,
+            'lr': 1e-3,
+            'policy_lr': 1e-2,
+            'sym_memory': False,                        
+            'alpha': 0.2,
+            'learn_alpha': True, 
+            'loss_ord': 1,
+            'n_sample_actions': 10}
+
+
+expl_args = {'n_state_predictors': 5,
+            'state_predictor_hidden_sizes': (64, 64),
+            'lr': 1e-3,
+            'bonus_scale': 1}
+
+
+
+
+def build_env():
+
+
+    def make_env():
+        
+        env_args = {'model': '3D', 'visualize': False, 'integrator_accuracy': 1e-3, 'difficulty': 3, 'stepsize': 0.01}
+
+        env = L2M2019EnvBaseWrapper(**env_args)
+        env = RandomPoseInitEnv(env)
+        env = ActionAugEnv(env) # transform action from tanh policies in (-1,1) to (0,1) before passing down.
+        env = PoolVTgtEnv(env, **env_args)
+        env = RewardAugEnv(env)
+        env = SkipEnv(env)
+        env = Obs2VecEnv(env)
  
-# def worker(id, remote, parent_remote, env_fn_wrapper):
- 
-#     parent_remote.close()
-   
-#     envs = [env_fn_wrapper.x() for i in range(para.groups)]
- 
-#     while True:
 
-#         cmd, data = remote.recv()
-
-#         if cmd == 'step':
-
-#             out = []
-#             for i in range(para.groups): 
-#                 ob, reward, done, info = envs[i].step(data[i]) 
-#                 if done: ob = envs[i].reset() 
-
-#                 out.append((ob, reward, done, info))         
-#             remote.send(out)
-
-#         elif cmd == 'reset':
-            
-#             out = []
-#             for i in range(para.groups): 
-#                 ob = envs[i].reset()  
-#                 out.append(ob)   
-#             remote.send(out)
+        print(f'# env.time_limit: {env.time_limit}, env.n_skips: {env.n_skips}')
     
-#         else:
-#             raise NotImplementedError
-
-
-# class CloudpickleWrapper():
-#     def __init__(self, x):
-#         self.x = x
-
-#     def __getstate__(self):
-#         import cloudpickle
-#         return cloudpickle.dumps(self.x)
-
-#     def __setstate__(self, ob):
-#         import pickle
-#         self.x = pickle.loads(ob)
-
-
-# class VecEnv():
- 
-#     def __init__(self, env_fns):
-        
-#         self.closed = False 
-#         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(len(env_fns))])
-
-#         self.ps = [Process(target=worker, args=(i, work_remote, remote, CloudpickleWrapper(env_fn)))
-#                    for i, (work_remote, remote, env_fn) in enumerate(zip(self.work_remotes, self.remotes, env_fns))]
-
-#         for p in self.ps:
-#             p.daemon = True  # if the main process crashes, we should not cause things to hang
-#             p.start()
-#         for remote in self.work_remotes:
-#             remote.close()
-
-        
-#     def step(self, actions): # actions: (n_env, n_actions) numpy array.
-
-#         for i in range(len(self.remotes)):
-#             self.remotes[i].send(('step', actions[i*para.groups:(i+1)*para.groups]))
-        
-#         results = []
-#         for remote in self.remotes:
-#             recv = remote.recv()
-#             results.extend(recv)
-
-#         obs, rews, dones, infos = zip(*results)      
-
-#         return np.stack(obs), np.stack(rews), np.stack(dones), infos
-
-
-#     def reset(self):
-#         for remote in self.remotes:
-#             remote.send(('reset', None))
-
-#         results = []
-#         for remote in self.remotes:
-#             recv = remote.recv() 
-#             results.extend(recv) 
-#         obs = np.stack(results)         
-#         return obs
- 
-
-#     def close(self):
-#         if self.closed:
-#             return
-#         for remote in self.remotes:
-#             remote.send(('close', None))
-#         for p in self.ps:
-#             p.join()
-#         self.closed = True
-
-
-
-
-
-
-
-# def preprocess_frame(img):     
-#     img = img[:-12, 6:-6] # (84, 84, 3)
-#     img = np.dot(img[...,:3], [0.2989, 0.5870, 0.1140])
-#     img = img / 255.0
-#     img = img * 2 - 1    
-#     # print(f'img.shape: {img.shape}') 
-#     assert img.shape == (84, 84)
-#     return img
-
-
-
-
-
-
-# class Backbone(tf.keras.layers.Layer):
-
-#     def __init__(self):
-#         super(Backbone, self).__init__(name='backbone')
-
-#     def build(self, input_shape):
-
-#         self.seq = [] 
-#         self.seq.append(tf.keras.layers.Conv2D(filters=16, kernel_size=8, strides=4))
-#         self.seq.append(tf.keras.layers.LeakyReLU())
-#         self.seq.append(tf.keras.layers.Conv2D(filters=32, kernel_size=3, strides=2))
-#         self.seq.append(tf.keras.layers.LeakyReLU())
-#         self.seq.append(tf.keras.layers.Conv2D(filters=64, kernel_size=3, strides=2))
-#         self.seq.append(tf.keras.layers.ReLU())  
-       
-#     def call(self, x, training=False): # x.shape: (64, 65, 64) = (64, 65, hidden_size)
-#         for layer in self.seq: x = layer(x, training=training)
-#         return x
-
-
+        return env
 
  
-
-
-# class PoliycyNet(tf.keras.Model):
-
-#     def __init__(self):  
-
-#         super().__init__(name='policy_net')
-
-#         self.seq = []
-#         self.seq.append(Backbone())
-#         self.seq.append(tf.keras.layers.Flatten())
-#         self.seq.append(tf.keras.layers.Dense(128, activation='tanh', kernel_initializer=tf.keras.initializers.VarianceScaling(scale=1.0)))
-#         self.seq.append(tf.keras.layers.Dense(128, activation='tanh', kernel_initializer=tf.keras.initializers.VarianceScaling(scale=1.0)))
-#         self.seq.append(tf.keras.layers.Dense(num_actions, activation='tanh', kernel_initializer=tf.keras.initializers.VarianceScaling(scale=1.0)))
-
-#     def call(self, x, training=False): # x.shape: (64, 65, 64) = (64, 65, hidden_size)
-#         for layer in self.seq: x = layer(x, training=training)
-#         return x
-
-
-# class ValueNet(tf.keras.Model):
-
-#     def __init__(self):  
-
-#         super().__init__(name='value_net')
-
-#         self.seq = []
-#         self.seq.append(Backbone())
-#         self.seq.append(tf.keras.layers.Flatten())
-#         self.seq.append(tf.keras.layers.Dense(128, activation='tanh'))
-#         self.seq.append(tf.keras.layers.Dense(128, activation='tanh'))
-#         self.seq.append(tf.keras.layers.Dense(1))
-
-
-#     def call(self, x, training=False): # x.shape: (64, 65, 64) = (64, 65, hidden_size)
-#         for layer in self.seq: x = layer(x, training=training)
-#         return x
-
-
-# class Agent(tf.keras.Model):
-
-#     def __init__(self):  
-
-#         super().__init__()
-
-#         self.policy_net = PoliycyNet()
-
-#         self.a_std = self.add_weight("a_std", shape=[num_actions,], trainable=False,
-#                       initializer = tf.keras.initializers.Constant(value=0.5), dtype=tf.float32)
-        
-#         self.value_net = ValueNet()
-
-#         self.update_counts = 0
-        
-#         self.opt_val = tf.keras.optimizers.Adam(learning_rate=para.lr)
-#         self.opt_pol = tf.keras.optimizers.Adam(learning_rate=para.lr)
-
-#         self.i = 0
-#         self.prev_action = np.array([0.0, 0.0, 0.0])
-#         self.recent_frames = deque(maxlen=para.k) 
-#         for _ in range(para.k):
-#             self.recent_frames.append(np.zeros((para.img_shape)))
-
-
-#     def act(self, obs):
-
-#         obs = np.squeeze(obs)
-
-#         if(self.i % para.skip == 0):
-#             self.i = 1
-#             self.recent_frames.append(preprocess_frame(obs)) 
-#             s = np.stack(self.recent_frames, axis=-1)[np.newaxis,...]            
-#             a, _, _ = self.predict(s, greedy=False)            
-#             self.prev_action = a
-  
-#         else:
-#             self.i += 1 
-            
-#         return self.prev_action
-
-
-
-#     @tf.function
-#     def call(self, x, training=False):
-        
-#         a_mean = self.policy_net(x, training=training)
-#         v = self.value_net(x, training=training)
-    
-#         a_mean = a_min + ((a_mean + 1) / 2) * (a_max - a_min)
-#         return a_mean, tf.squeeze(v, axis=-1)
-
-
-
-#     def predict(self, state, greedy=False):
-        
-#         state = tf.convert_to_tensor(state, tf.float32)                 
-#         a_mean, v = self(state)
-
-#         dist = tf.compat.v1.distributions.Normal(a_mean, self.a_std, validate_args=True)
-
-#         if(greedy):
-#             a = a_mean
-#         else:
-#             a = tf.squeeze(dist.sample(1)) # (b, num_actions)  
-
-#         a_logP = tf.reduce_sum(dist.log_prob(a), axis=-1) # (b,) 
-                
-#         return a.numpy(), a_logP.numpy(), v.numpy()
- 
-
-
-#     def train_step(self, batch):
-#         self.update_counts += 1
-#         pol_loss, val_loss = self._train_step(batch)
-#         return pol_loss.numpy(), val_loss.numpy()
-
-
-#     @tf.function
-#     def _train_step(self, batch):
-        
-#         # sta = tf.convert_to_tensor(self.sta[idxes], tf.float32) # (b, 84, 84, 4)
-#         # act = tf.convert_to_tensor(self.act[idxes], tf.float32) # (b, 3)
-#         # alg = tf.convert_to_tensor(self.alg[idxes], tf.float32) # (b,)
-#         # val = tf.convert_to_tensor(self.val[idxes], tf.float32) # (b,)
-#         # ret = tf.convert_to_tensor(self.ret[idxes], tf.float32) # (b,)
-#         # adv = tf.convert_to_tensor(self.adv[idxes], tf.float32) # (b,)
-
-#         sta, a, a_logP_old, val_old, ret, adv = batch
-
-#         eps = para.ppo_clip
-
-
-#         with tf.GradientTape() as tape: 
-#             val = self.value_net(sta, training=True)
-#             val = tf.squeeze(val, axis=-1) 
-#             val_loss = tf.reduce_mean(tf.square(ret - val))  
-  
-#         val_grads = tape.gradient(val_loss, self.value_net.trainable_variables)
-#         self.opt_val.apply_gradients(zip(val_grads, self.value_net.trainable_variables))
-
-  
-#         with tf.GradientTape() as tape:
-  
-#             a_mean = self.policy_net(sta, training=True)        
-#             a_mean = a_min + ((a_mean + 1) / 2) * (a_max - a_min)  
-
-#             dist = tf.compat.v1.distributions.Normal(a_mean, self.a_std, validate_args=True)
-#             a_logP = tf.reduce_sum(dist.log_prob(a), axis=-1) # (b,) 
-#             ent = dist.entropy()       
-        
-   
-#             r = tf.exp(a_logP - a_logP_old) # (b,)                        
-#             pol_loss = - tf.reduce_mean(tf.minimum(r * adv, tf.clip_by_value(r, 1-eps, 1+eps) * adv)) - \
-#                                         para.w_ent * tf.reduce_mean(tf.reduce_sum(ent, axis=-1))
- 
-#             # pol_loss = - tf.reduce_mean(tf.minimum(r * adv, tf.clip_by_value(r, 1-eps, 1+eps) * adv))
-  
-
-#         pol_grads = tape.gradient(pol_loss, self.policy_net.trainable_variables)
-#         self.opt_pol.apply_gradients(zip(pol_grads, self.policy_net.trainable_variables))
-
-
-#         return pol_loss, val_loss 
-
-
-#     def save_checkpoint(self, path):  
-#         print(f'- saved ckpt {path}') 
-#         self.save_weights(path)
-         
-
-#     def load_checkpoint(self, path):         
-#         print(f'- loaded ckpt {path}') 
-#         self(tf.random.uniform(shape=[1, *para.img_shape, para.k]))
-#         self.load_weights(path)
-
-
-
- 
-
-
-# class VecBuf():
-
-#     def __init__(self, n_envs):   
-       
-#         self.n_envs = n_envs
-#         self.n = 0 
-         
-#         self.sta = np.zeros((para.horizon+1, n_envs, *para.img_shape, para.k))
-#         self.val = np.zeros((para.horizon+1, n_envs)) 
-#         self.act = np.zeros((para.horizon, n_envs, num_actions))               
-#         self.alg = np.zeros((para.horizon, n_envs))               
-#         self.rew = np.zeros((para.horizon, n_envs))
-#         self.don = np.zeros((para.horizon, n_envs), dtype='bool')
-#         self.adv = None
-#         self.ret = None
-
-#         self.stack = [deque(maxlen=para.k) for _ in range(para.n_envs)]
-#         self.init_stack(np.ones((n_envs), dtype='bool'))
-
-
-#     def init_stack(self, don):
-#         for j in range(self.n_envs):
-#             if(don[j]):
-#                 for _ in range(para.k): 
-#                     self.stack[j].append(np.zeros(para.img_shape))
-#             # print(f'len(self.stack[{i}]): {len(self.stack[i])}')
-
-#     def add_frame(self, frames):
-        
-#         for i in range(self.n_envs):
-#             # print(f'frames[i].shape: { frames[i].shape}')
-#             self.stack[i].append(preprocess_frame(frames[i]))
-
-#             # print(f'len(self.stack[i]): {len(self.stack[i])}')
-
-#             self.sta[self.n, i] = np.stack(self.stack[i], axis=-1)
-
-#         self.n+=1
-        
-#         return self.sta[self.n-1, :] # (n_env, 84, 84, 4)
- 
-#     def add_value(self, val):
-#         self.val[self.n-1] = val # (n_env,)
-
-#     def add_effects(self, act, alg, rew, don):
-#         idx = self.n-1
-#         self.act[idx] = act
-#         self.alg[idx] = alg
-#         self.rew[idx] = rew
-#         self.don[idx] = don
-
-#         self.init_stack(don)
-     
-#     def add_advantage(self, adv):
-        
-#         assert adv.shape == self.val[:-1].shape
-
-#         # self.adv = (adv - adv.mean()) / (adv.std() + 1e-8)  
-#         self.ret = adv + self.val[:-1]
-#         self.adv = (adv - adv.mean()) / (adv.std() + 1e-8)  
-
-#         # print(f'adv.shape: {adv.shape}')
-        
-    
-#     def get_data(self):
-    
-#         return AttrDict({
-#                 'sta': self.sta,
-#                 'act': self.act,
-#                 'alg': self.alg,
-#                 'val': self.val,
-#                 'rew': self.rew,
-#                 'don': self.don.astype(np.int32),
-#                 'adv': self.adv,
-#                 'ret': self.ret
-#             })
-
-#     def flatten(self):
-#         self.sta = self.sta.reshape((-1, *para.img_shape, para.k))  # (H * n_env, 84, 84, 4)
-#         self.act = self.act.reshape((-1, num_actions))              # (H * n_env, 3)
-#         self.alg = self.alg.flatten() 
-#         self.val = self.val.flatten()  
-#         self.ret = self.ret.flatten()        
-#         self.adv = self.adv.flatten()
-
-#     def shuffle(self):
-#         self.idxes = np.arange(para.horizon * self.n_envs)
-#         np.random.shuffle(self.idxes)
-
-#     def batch(self):
-
-#         n = int(np.ceil(para.horizon * self.n_envs / para.batch_size))
-    
-#         for i in range(n):
-            
-#             idxes = self.idxes[i * para.batch_size : (i+1) * para.batch_size]
-
-#             sta = tf.convert_to_tensor(self.sta[idxes], tf.float32) # (b, 84, 84, 4)
-#             act = tf.convert_to_tensor(self.act[idxes], tf.float32) # (b, 3)
-#             alg = tf.convert_to_tensor(self.alg[idxes], tf.float32) # (b,)
-#             val = tf.convert_to_tensor(self.val[idxes], tf.float32) # (b,)
-#             ret = tf.convert_to_tensor(self.ret[idxes], tf.float32) # (b,)
-#             adv = tf.convert_to_tensor(self.adv[idxes], tf.float32) # (b,)
-#             yield sta, act, alg, val, ret, adv
-            
-      
-# def compute_gae(rews, vals, masks, gamma, LAMBDA):
-    
-#     assert len(rews) == para.horizon
-
-
-#     adv = np.zeros((para.horizon, para.n_envs))
-
-#     for j in range(para.n_envs):
-
-#         rew, val, mask = rews[:,j], vals[:,j], masks[:,j]
-
-#         gae = 0 
-#         for i in reversed(range(para.horizon)):
-#             delta = rew[i] + gamma * val[i + 1] * mask[i] - val[i]
-#             gae = delta + gamma * LAMBDA * mask[i] * gae            
-#             adv[i, j] = gae
-
-#     return adv # (horizon, n_envs)
- 
-
- 
-
-
-# class Trainer():
-
-#     def __init__(self):
-
-#         self.agent = Agent()
-#         if('ckpt_load_path' in para): 
-#             self.agent.load_checkpoint(para.ckpt_load_path)
-
- 
-        
-#         for w in self.agent.weights:
-#             key = w.name[:-2]            
-#             if(key == 'a_std'):
-#                 w.assign(tf.convert_to_tensor(np.array(para.a_std, dtype=np.float32)))
-#                 print(f'a_std: {w}')
+    return VecEnv([make_env for i in range(args.n_env)])
    
 
 
-
-#     def train(self):    
-
-#         env = VecEnv([make_env for _ in range(para.n_envs // para.groups)])
-#         obs = env.reset()
-    
- 
-#         # with open("eval.txt", "w") as f: f.write("")
-#         # with open("log.txt", "w") as f: f.write("")
-#         log = {}
-
-#         for t in range(para.n_iters):
-
-#             print(f't: {t}')
-
-#             buf = VecBuf(para.n_envs)
-         
-#             for s in range(para.horizon): 
-#                 sta = buf.add_frame(obs) 
-#                 # print(f'buf.n: {buf.n}')
-#                 a, a_logP, value = self.agent.predict(sta) 
-#                 obs, reward, done, _ = env.step(a)
-
-                
-
-#                 # green penalty               
-#                 for i, ob in enumerate(obs):
-#                     # print(f'ob.shape: {ob.shape}, reward.shape: {reward.shape}')
-#                     gp = np.mean(ob[:, :, 1])
-                    
-#                     if gp > 180.0:  
-#                         reward[i] -= 0.05                  
-#                         # print(f'gp: {gp}')
-
-#                         # save_frame('video/gp', f'{t}-{s}-{i}_gp{int(gp)}.jpeg', ob)                        
-                   
-                                    
-#                 buf.add_value(value)
-#                 buf.add_effects(a, a_logP, reward, done)
-             
-#             sta = buf.add_frame(obs) 
-#             buf.add_value(self.agent.predict(sta)[2])
-
-#             data = buf.get_data()
-#             advantages = compute_gae(data.rew, data.val, 1-data.don, para.gamma, para.gae_lambda)
-#             buf.add_advantage(advantages)
-            
-
-#             buf.flatten()
-#             pol_losses = []
-#             val_losses = []
-#             for _ in range(para.epochs):
-#                 buf.shuffle()                 
-#                 for batch in buf.batch(): 
-#                     pol_loss, val_loss = self.agent.train_step(batch)
-#                     pol_losses.append(pol_loss)
-#                     val_losses.append(val_loss)
-
-
-#             if t % para.save_period == 0:
-#                 self.agent.save_checkpoint(para.ckpt_save_path)
-                
-            
-#             if t % para.log_period == 0:
-#                 log['cum_reward_mean'], log['cum_reward_std'] = \
-#                                         self.compute_cum_reward(data.rew, data.don)
-
-#                 # print(f'len(losses): {len(losses)}')
-#                 log['pol_loss'] = np.mean(pol_losses).round(4)
-#                 log['val_loss'] = np.mean(val_losses).round(4)
-#                 with open("log.txt", "a") as f: f.write(f't: {t}, ' + str(log) + '\n')
-
-#             if t % para.eval_period == 0:
-#                 total_reward = self.evaluate(t)
-#                 with open("eval.txt", "a") as f: f.write(f't: {t}, cum_reward: {total_reward}\n')
-#                 self.agent.save_checkpoint(f"ckpt/eval-{t}.h5")
-
-
-
-#     def compute_cum_reward(self, rew, don):  
-#         cum_rewards = [np.sum(rew[j]) for j in range(para.n_envs)]
-#         return np.mean(cum_rewards).round(4), np.std(cum_rewards).round(4)
  
 
 
+env = build_env() 
 
 
-#     def evaluate(self, t=0, n=5):
+np.random.seed(args.seed)
+tf.set_random_seed(args.seed) 
 
-#         print('evaluating...')
-    
-#         env = gym.make("MultiCarRacing-v0", num_agents=1, direction='CCW',
-#             use_random_direction=True, backwards_flag=True, h_ratio=0.25,
-#             use_ego_color=False)       
-        
-#         total_rewards = []
-#         for i in range(n):
- 
-#             obs = env.reset()           
-#             total_reward = 0
-            
-#             while True:
- 
-#                 a = self.agent.act(obs) 
-#                 obs, reward, done, _ = env.step(a)
-                
-#                 total_reward += reward[0]
-
-#                 if done: break
-
-            
-
-#             total_rewards.append(total_reward) 
-
-#             print(f'i: {i}, total_reward: {total_reward.round(4)}, np.mean(total_rewards): {np.mean(total_rewards).round(4)}')
-
-#         return np.mean(total_rewards).round(4)
+agent = learn(env, args, expl_args, alg_args)
 
 
-
-
-
-# trainer = Trainer()
-# # trainer.train()
-
-
-
-
-
-
-
-# test_file = '111022533_hw3_test.py'
-# module_name = '111022533_hw3_test'
-# spec = importlib.util.spec_from_file_location(module_name, test_file)
-# module = importlib.util.module_from_spec(spec)
-# sys.modules[module_name] = module
- 
-# spec.loader.exec_module(module)
-# Agent = getattr(module, 'Agent')
-# trainer.agent = Agent()
-# trainer.evaluate(n=50)
 
