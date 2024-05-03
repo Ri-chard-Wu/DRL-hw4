@@ -101,8 +101,12 @@ class SAC:
         self.target_entropy = - 1 * np.sum(action_shape)
 
 
-    def train_step(self, obs, act, rew, don, obs_next):        
+    # def train_step(self, obs, act, rew, don, obs_next):  
+    def train_step(self, batch):   
+
+        obs, act, rew, don, obs_next = batch
  
+
         # train policy.
         with tf.GradientTape() as tape: 
             act_pred, log_pis = self.policy(obs)  # (n_samples, batch_size, action_dim) and (...,1)
@@ -147,134 +151,7 @@ class SAC:
 
 
 
-
-# class SAC:
-#     def __init__(self, observation_shape, action_shape, v_tgt_field_size, *,
-#                     policy_hidden_sizes, q_hidden_sizes, value_hidden_sizes, alpha, discount, tau, lr, policy_lr, n_sample_actions=1, learn_alpha=True, use_nf=True, loss_ord=1):
-        
-#         # inputs
-#         self.obs_ph = tf.placeholder(tf.float32, [None, *observation_shape], name='obs')
-#         self.actions_ph = tf.placeholder(tf.float32, [None, *action_shape], name='actions')
-#         self.rewards_ph = tf.placeholder(tf.float32, [None, 1], name='rewards')
-#         self.dones_ph = tf.placeholder(tf.float32, [None, 1], name='dones')
-#         self.next_obs_ph = tf.placeholder(tf.float32, [None, *observation_shape], name='next_obs')
  
-#         value_function = MLP('value_function', hidden_sizes=value_hidden_sizes, output_size=1)
-#         target_value_function = MLP('target_value_function', hidden_sizes=value_hidden_sizes, output_size=1)
-
-#         # Dual Q-func to avoid over-estimation problem?
-#         q1 = MLP('q1', hidden_sizes=q_hidden_sizes, output_size=1)
-#         q2 = MLP('q2', hidden_sizes=q_hidden_sizes, output_size=1)
-         
-#         policy = FlowPolicy('policy', hidden_sizes=policy_hidden_sizes, output_size=action_shape[0], output_kernel_initializer='zeros', output_bias_initializer='zeros')
-        
- 
-#         if learn_alpha:
-#             beta = tf.Variable(tf.zeros(1), trainable=True, dtype=tf.float32, name='beta')
-#             alpha = tf.exp(beta)
-
-
-#         # 2. loss
-#         #   q value target
-#         next_v = target_value_function(self.next_obs_ph)
-#         target_q = self.rewards_ph + discount * next_v * (1 - self.dones_ph)
-
- 
-
-#         #   q values loss terms
-#         q1_at_memory_action = q1(tf.concat([self.obs_ph, self.actions_ph], 1))
-#         q2_at_memory_action = q2(tf.concat([self.obs_ph, self.actions_ph], 1))
-#         self.q_at_memory_action = tf.minimum(q1_at_memory_action, q2_at_memory_action)
-
-        
-#         q1_loss = tf.reduce_mean(tf.norm(q1_at_memory_action - target_q, axis=1, ord=loss_ord), axis=0)
-#         q2_loss = tf.reduce_mean(tf.norm(q2_at_memory_action - target_q, axis=1, ord=loss_ord), axis=0)
-
-
-
-#         #   policy loss term
-#         actions, log_pis = policy(self.obs_ph)  # (n_samples, batch_size, action_dim) and (...,1)
-#         actions, log_pis = tf.squeeze(actions, 0), tf.squeeze(log_pis, 0)
-#         q_at_policy_action = tf.minimum(q1(tf.concat([self.obs_ph, actions], 1)),
-#                                         q2(tf.concat([self.obs_ph, actions], 1)))
-#         policy_loss = tf.reduce_mean(alpha * log_pis - q_at_policy_action)
-
-
-
-#         #   value function loss term
-#         v = value_function(self.obs_ph) # MLP.
-#         target_v = q_at_policy_action - alpha * log_pis
-#         v_loss = tf.reduce_mean(tf.norm(v - target_v, axis=1, ord=loss_ord), axis=0)
-
-
-
-#         #   alpha loss term
-#         if learn_alpha:
-#             target_entropy = - 1 * np.sum(action_shape)
-#             alpha_loss = tf.reduce_mean(- alpha * log_pis - alpha * target_entropy)
-
-
-#         # 3. update ops
-        
-#         policy_optimizer = tf.train.AdamOptimizer(policy_lr, name='policy_optimizer')
-#         policy_train_op = policy_optimizer.minimize(policy_loss, var_list=policy.trainable_vars, 
-#                                                     global_step=tf.train.get_or_create_global_step())
-#         self.train_ops = [policy_train_op]
-
- 
-#         with tf.control_dependencies([policy_train_op]):
-#             flow_train_op = policy_optimizer.minimize(policy_loss, var_list=policy.flow_trainable_vars)
-#             self.train_ops += [flow_train_op]
-
-
-#         optimizer = tf.train.AdamOptimizer(lr, name='optimizer')
-#         with tf.control_dependencies([policy_train_op]):
-#             v_train_op = optimizer.minimize(v_loss, var_list=value_function.trainable_vars)
-#             q1_train_op = optimizer.minimize(q1_loss, var_list=q1.trainable_vars)
-#             q2_train_op = optimizer.minimize(q2_loss, var_list=q2.trainable_vars)
-
-
-#         #   combined train ops
-#         self.train_ops += [v_train_op, q1_train_op, q2_train_op]
-#         if learn_alpha:
-#             with tf.control_dependencies(self.train_ops):
-#                 alpha_train_op = optimizer.minimize(alpha_loss, var_list=[beta])
-#             self.train_ops += [alpha_train_op]
-
-#         #   target value fn update
-#         self.target_update_ops = tf.group([tf.assign(target, (1 - tau) * target + tau * source) for target, source in zip(target_value_function.trainable_vars, value_function.trainable_vars)])
-
-#         # 4. get action op
-#         self.actions, _ = policy(self.obs_ph, n_sample_actions)
-
-
-#     def initialize(self, sess):
-#         self.sess = sess
-#         self.sess.run(tf.global_variables_initializer())
-
-
-#     def get_actions(self, obs):
-#         return self.sess.run(self.actions, {self.obs_ph: np.atleast_2d(obs)})
-
-
-#     def get_action_value(self, obs, actions):
-#         return self.sess.run(self.q_at_memory_action, {self.obs_ph: obs, self.actions_ph: actions})
-
-#     def update_target_net(self):
-#         self.sess.run(self.target_update_ops)
-
-#     def train_step(self, batch):
-#         self.sess.run(self.train_ops, {self.obs_ph: batch.obs, 
-#                                        self.actions_ph: batch.actions, 
-#                                        self.rewards_ph: batch.rewards,
-#                                        self.dones_ph: batch.dones, 
-#                                        self.next_obs_ph: batch.next_obs})
-
-
-
-
-
-
 
 
 def learn(env, args, expl_args, alg_args):
@@ -286,34 +163,23 @@ def learn(env, args, expl_args, alg_args):
     episode_lengths = np.zeros((env.num_envs, 1), dtype=int)
 
    
+    # env.observation_space.shape: (102,),  env.action_space.shape: (22,).
     memory = Memory(args.memory_size, env.observation_space.shape, env.action_space.shape)
-    agent = SAC(env.observation_space.shape, env.action_space.shape, env.v_tgt_field_size, **alg_args)
-    exploration = DisagreementExploration(env.observation_space.shape, env.action_space.shape, **expl_args)
+    agent = SAC(env.observation_space.shape, env.action_space.shape, env.v_tgt_field_size alg_args)
+    exploration = DisagreementExploration(env.observation_space.shape, env.action_space.shape, expl_args)
+ 
+  
+    memory.initialize(env, args.n_prefill_steps // env.num_envs)
+ 
+    obs = env.reset() # obs.shape: (n_env, 102).
 
-    # initialize session, agent, saver
-    sess = tf.get_default_session()
-    agent.initialize(sess)
-    
-    exploration.initialize(sess, env=env)
-
-
-    sess.graph.finalize()
-    
-
-
-   
-    # init memory and env for training
-    memory.initialize(env, args.n_prefill_steps // env.num_envs, training=(n_total_steps > 0), 
-                      policy=agent if args.load_path else None)
-    obs = env.reset()
 
     for t in range(int(1e8)):
-      
-      
-        actions = agent.get_actions(obs)  # (n_samples, batch_size, action_dim)
-        actions = exploration.select_best_action(obs, actions)
-        next_obs, r, done, info = env.step(actions)
-        r_aug = np.vstack([i.get('rewards', 0) for i in info]) # auxiliary?
+       
+        actions = agent.get_actions(obs)  # (n_samples, n_env, action_dim=22)
+        actions = exploration.select_best_action(obs, actions) # (n_env, action_dim=22)
+        next_obs, r, done, info = env.step(actions) # r: (n_env, 1), done: (n_env, 1)
+        r_aug = np.vstack([i.get('rewards', 0) for i in info]) # (n_env, 1)
         r_bonus = exploration.get_exploration_bonus(obs, actions, next_obs) # encourage exploration.
         
         # don't count "reaching max_episode_length (time limit)" as done.
@@ -326,6 +192,7 @@ def learn(env, args, expl_args, alg_args):
 
         # end of episode -- when all envs are done or max_episode length is reached, reset
         if any(done):
+            # set episode_lengths of those whose done is True to 0.
             for d in np.nonzero(done)[0]:                                     
                 episode_lengths[d] = 0
  

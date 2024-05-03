@@ -100,6 +100,28 @@ def build_env():
 env = build_env() 
 
 
+
+
+
+
+
+# obs = env.reset()
+# next_obs, r, done, info = env.step(np.random.rand(4, 22))
+# # print(f'r.shape: {r.shape}, done.shape: {done.shape}')
+# # a = np.vstack([i.get('rewards', 0) for i in info])
+# print(f'done: {done}')
+# # print(f'env.observation_space.shape: {env.observation_space.shape}')
+# # print(f'env.action_space.shape: {env.action_space.shape}')
+# # # obs = env.reset()
+# # # print(f'obs.shape: {obs.shape}')
+# exit()
+
+
+
+
+
+
+
 np.random.seed(args.seed)
 tf.set_random_seed(args.seed) 
 

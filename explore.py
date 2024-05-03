@@ -6,100 +6,115 @@ from env_wrappers import RewardAugEnv
 
 
 
-
-
+ 
 class DisagreementExploration():
     '''
     https://arxiv.org/abs/1906.04161, cite: 385.
+    
     '''
-    def __init__(self, observation_shape, action_shape, lr, state_predictor_hidden_sizes, n_state_predictors, bonus_scale, **kwargs):
-
-        # super().__init__(observation_shape, action_shape)
+    def __init__(self, observation_shape, action_shape, args):
+        '''
+        observation_shape: (102,),  action_shape: (22,).
+        '''        
 
         self.observation_shape = observation_shape
         self.action_shape = action_shape
 
+
         # subset of obs indices to model / use in exploration modules
+        # v_tgt_field_size: 5.
+        # observation_shape[0]: the new obs shape after shriking v field size from
+            # 2*11*11 to 5 in one env wrapper.
         self.v_tgt_field_size = observation_shape[0] - (339 - 2*11*11)  # L2M original obs dims are 339 where 2*11*11 is the orig vtgt field size
         
         # pose_idxs start with pelvis at 0 index (obs vector after the v_tgt_field)
         self.pose_idxs = np.array([*list(range(9)),                        # pelvis       (9 obs)
-                                   *list(range(12,16)),                    # joints r leg (4 obs)
-                                   *list(range(20+3*11+3,20+3*11+3+4))])   # joints l leg (4 obs)
+                                   *list(range(12,16)),   # joints r leg (4 obs)
+                                   *list(range(20+3*11+3,20+3*11+3+4))]) # joints l leg (4 obs)
         self.pose_idxs += self.v_tgt_field_size  # offset for v_tgt_field
-        self.idxs = np.hstack([list(range(self.v_tgt_field_size)), self.pose_idxs])
+        
+        self.idxs = np.hstack([list(range(self.v_tgt_field_size)), self.pose_idxs]) 
+
+        # self.idxs: array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 17, 18, 19, 20, 61, 62, 63, 64])  
+        # self.idxs: (22,)
 
 
 
-        self.lr = lr
-        self.bonus_scale = bonus_scale
+        self.lr = args.lr
+        self.bonus_scale = args.bonus_scale
 
-        # inputs
-        self.obs_ph = tf.placeholder(tf.float32, [None, *self.observation_shape], name='obs')
-        self.actions_ph = tf.placeholder(tf.float32, [None, *self.action_shape], name='actions')
-        self.next_obs_ph = tf.placeholder(tf.float32, [None, *self.observation_shape], name='next_obs')
 
+ 
         # build graph
         # 1. networks
-        state_predictors = [MLP('state_predictor_{}'.format(i), 
-                                  hidden_sizes=state_predictor_hidden_sizes,
-                                    output_size=len(self.idxs)) for i in range(n_state_predictors)]
-
-        # 2. state predictor outputs
-        #   select obs indices to model using the state predictors
-        obs = tf.gather(self.obs_ph, self.idxs, axis=1)
-        next_obs = tf.gather(self.next_obs_ph, self.idxs, axis=1)
-
-        #   whiten obs and next obs
-        obs_mean, obs_var = tf.nn.moments(obs, axes=0)
-        next_obs_mean, next_obs_var = tf.nn.moments(next_obs, axes=0)
-
-        normed_obs = (obs - obs_mean) / (obs_var**0.5 + 1e-8)
-        normed_next_obs = (next_obs - next_obs_mean) / (next_obs_var**0.5 + 1e-8)
+        self.state_predictors = [MLP(f'state_predictor_{i}', 
+                                  hidden_sizes=args.state_predictor_hidden_sizes,
+                                    output_size=len(self.idxs)) for i in range(args.n_state_predictors)]
 
 
-        #   predict from zero-mean unit var obs; shift and scale result by obs mean and var
-        normed_pred_next_obs = [model(tf.concat([normed_obs, self.actions_ph], 1)) for model in state_predictors]
+        self.optimizer = [tf.keras.optimizers.Adam(learning_rate=args.lr) for _ in range(args.n_state_predictors)]
+
+
+    def pre_process(self, obs):
+        # self.idxs: (22,)   
+        obs = tf.gather(obs, self.idxs, axis=1) # (n_env, 22) 
+        obs_mean = tf.math.reduce_mean(obs, axis=0) # (22,).
+        obs_std = tf.math.reduce_std(obs, axis=0) # (22,).
+       
+        normed_obs = (obs - obs_mean) / (obs_std + 1e-8) # (22,).
+         
+        return normed_obs, obs_mean, obs_std
+
+
+    def predict(self, obs, act): # obs = (n_env, 102)
+
+        # self.idxs: (22,)   
+        # obs = tf.gather(obs, self.idxs, axis=1) # (n_env, 22) 
+        # obs_mean = tf.math.reduce_mean(obs, axis=0) # (22,).
+        # obs_std = tf.math.reduce_std(obs, axis=0) # (22,).
+       
+        # normed_obs = (obs - obs_mean) / (obs_std + 1e-8) # (22,).
+             
+        normed_obs, obs_mean, obs_std = self.pre_process(obs)
+
+        normed_pred_next_obs = [model(tf.concat([normed_obs, act], 1)) for model in self.state_predictors] # [(n_env, 22), (n_env, 22), ...]
+ 
+        return normed_pred_next_obs, obs_mean, obs_std
+
+
+    def get_exploration_bonus(self, obs, act): 
         
-        self.normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1)  # (B, n_state_predictors, obs_dim)
+        # obs: (n_env, obs_dim) == (n_env, 102).
+        # act: (n_env, act_dim).
+ 
+         
+        normed_pred_next_obs, obs_mean, obs_std = self.predict(obs, act)
+        normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1).numpy()  # (B, n_state_predictors, 22)
 
-        self.pred_next_obs = self.normed_pred_next_obs * (obs_var[None,None,:]**0.5 + 1e-8)\
-                                                + obs_mean[None,None,:]  # (B, n_state_predictors, obs_dim)
+        return self.bonus_scale * np.var(normed_pred_next_obs, axis=(1,2))[:,None] # (B, 1)?
 
-        # 2. loss
-        self.loss_ops = [tf.losses.mean_squared_error(pred, normed_next_obs) for pred in normed_pred_next_obs]
+ 
+    def select_best_action(self, obs, act):
 
-        # 3. training
-        optimizer = tf.train.AdamOptimizer(lr, name='sp_optimizer')
-        self.train_ops = [optimizer.minimize(loss, var_list=model.trainable_vars)\
-                             for loss, model in zip(self.loss_ops, state_predictors)]
-
-
-
-    def initialize(self, sess, **kwargs):
-        self.sess = sess
-
-
-    def get_exploration_bonus(self, obs, actions, next_obs):
-        normed_pred_next_obs = self.sess.run(self.normed_pred_next_obs, {self.obs_ph: obs, self.actions_ph: actions})
-        # bonus is variance among the state predictors and along the predicted state vector
-        #   ie a/ incent disagreement among the state predictors (explore state they can't model well);
-        #      b/ incent exploring diverse state vectors; eg left-right leg mid-stride having opposite signs is higher var than standing / legs in same position
-        return self.bonus_scale * np.var(normed_pred_next_obs, axis=(1,2))[:,None]
-
-
-
-    def select_best_action(self, obs, actions):
-
-        # input is obs = (n_env, obs_dim); actions = (n_samples, n_env, action_dim)
-        n_samples, n_env, action_dim = actions.shape
+        # obs = (n_env, 104); actions = (n_samples, n_env, action_dim)
+        n_samples, n_env, action_dim = act.shape
 
         # reshape inputs to (n_samples*n_env, *_dim)
         obs = np.tile(obs, (n_samples, 1, 1)).reshape(-1, obs.shape[-1])
-        actions = actions.reshape(-1, action_dim)
+        act = act.reshape(-1, action_dim)
 
-        # (n_samples*n_env, n_state_predictors, obs_dim)
-        pred_next_obs = self.sess.run(self.pred_next_obs, {self.obs_ph: obs, self.actions_ph: actions})  
+
+        obs = tf.convert_to_tensor(obs, tf.float32)
+        act = tf.convert_to_tensor(act, tf.float32)
+
+ 
+        normed_pred_next_obs, obs_mean, obs_std = self.predict(obs, act)
+        normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1).numpy()  # (B, n_state_predictors, 22)
+
+        pred_next_obs = normed_pred_next_obs * (obs_std[None,None,:] + 1e-8)\
+                                                + obs_mean[None,None,:]  # (B, n_state_predictors, obs_dim)
+ 
+        pred_next_obs = pred_next_obs.numpy()
 
         # compute reward, split into 9 subarrays over the last axis.
         height, pitch, roll, dx, dy, dz, dpitch, droll, dyaw = np.split(
@@ -107,11 +122,9 @@ class DisagreementExploration():
 
         # split to produce 3 arrays of shape (n,), (n,) and (1,)  where n is half the pooled v_tgt_field
         # split to produce 3 arrays: [0:1], [1:self.v_tgt_field_size - 1], [self.v_tgt_field_size - 1:].
-        x_vtgt_onehot, _, goal_dist = np.split(pred_next_obs[:,:,:self.v_tgt_field_size], 
-                                               [1, self.v_tgt_field_size - 1], axis=-1)  
+        x_vtgt_onehot, _, goal_dist = np.split(pred_next_obs[:,:,:self.v_tgt_field_size], [1, self.v_tgt_field_size - 1], axis=-1)  
         
-        rewards = RewardAugEnv.compute_rewards(x_vtgt_onehot, goal_dist, height, pitch, 
-                            roll, dx, dy, dz, dpitch, droll, dyaw, None, None, None, None, None, None)
+        rewards = RewardAugEnv.compute_rewards(x_vtgt_onehot, goal_dist, height, pitch, roll, dx, dy, dz, dpitch, droll, dyaw, None, None, None, None, None, None)
         
         rewards = np.sum([v for v in rewards.values()], 0)  # (n_samples*n_env, n_state_predictors, 1)
         rewards = np.reshape(rewards, [n_samples, n_env, -1, 1])  # (n_samples, n_env, n_state_predictors, 1)
@@ -127,12 +140,24 @@ class DisagreementExploration():
 
 
     def train(self, memory, batch_size):
-        losses = []
-        for loss_op, train_op in zip(self.loss_ops, self.train_ops):
-            batch = memory.sample(batch_size)
-            loss, _ = self.sess.run([loss_op, train_op],
-                        feed_dict={self.obs_ph: batch.obs, self.actions_ph: batch.actions, self.next_obs_ph: batch.next_obs})
-            losses.append(loss)
-        return np.mean(loss)
- 
+  
+        for i in range(len(self.state_predictors)):
+
+            model = self.state_predictors[i]
+
+            obs, act, _, _, obs_next = memory.sample(batch_size)
+             
+            normed_obs, _, _ = self.pre_process(obs)  
+            normed_next_obs, _, _ = self.pre_process(obs_next)                    
+
+            with tf.GradientTape() as tape: 
+                normed_pred_next_obs = model(tf.concat([normed_obs, act], 1))
+
+                loss = tf.keras.losses.mse(normed_pred_next_obs, normed_next_obs)
+    
+            grads = tape.gradient(loss, model.trainable_variables)
+            self.optimizer[i].apply_gradients(zip(grads, model.trainable_variables))
+
+                
+                 
  
