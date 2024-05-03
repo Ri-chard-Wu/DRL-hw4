@@ -368,183 +368,10 @@ class Obs2VecEnv(gym.Wrapper):
     def create(self):
         return self.obs2vec(self.env.create())
 
- 
- 
- 
+  
 
  
-# class VecEnv(ABC):
  
-#     def __init__(self, num_envs, observation_space, action_space, v_tgt_field_size):
-#         self.num_envs = num_envs
-#         self.observation_space = observation_space
-#         self.action_space = action_space
-#         self.v_tgt_field_size = v_tgt_field_size
-
-#     @abstractmethod
-#     def reset(self):
- 
-#         pass
-
-#     @abstractmethod
-#     def step_async(self, actions):
- 
-#         pass
-
-#     @abstractmethod
-#     def step_wait(self):
- 
-#         pass
-
-#     def close_extras(self):
-#          
-#         pass
-
-#     def close(self):
-#         if self.closed:
-#             return
-#         self.close_extras()
-#         self.closed = True
-
-#     def step(self, actions): 
-#         self.step_async(actions)
-#         return self.step_wait()
-
-
- 
-
-
-
-
-
-# def worker(remote, parent_remote, env_fn_wrapper):
-#     parent_remote.close()
-#     env = env_fn_wrapper.x()
-#     try:
-#         while True:
-#             cmd, data = remote.recv()
-#             if cmd == 'step':
-#                 ob, reward, done, info = env.step(data)
-#                 if done:
-#                     ob = env.reset()
-#                 remote.send((ob, [reward], [done], info))
-#             elif cmd == 'reset':
-#                 ob = env.reset()
-#                 remote.send(ob)
-#             elif cmd == 'close':
-#                 remote.close()
-#                 break
-#             elif cmd == 'get_spaces_spec':
-#                 remote.send((env.observation_space, env.action_space, getattr(env, 'v_tgt_field_size', 0), env.spec))
-#             else:
-#                 raise NotImplementedError
-#     except KeyboardInterrupt:
-#         print('SubprocVecEnv worker: got KeyboardInterrupt')
-#     finally:
-#         env.close()
-
-
-
-
-@contextlib.contextmanager
-def clear_mpi_env_vars():
-    """
-    from mpi4py import MPI will call MPI_Init by default. If the child process has MPI environment variables,
-    MPI will think that the child process is an MPI process just like the parent and do bad things such as hang.
-    This context manager is a hacky way to clear those environment variables temporarily such as when we are
-    starting multiprocessing Processes.
-    """
-    removed_environment = {}
-    for k, v in list(os.environ.items()):
-        for prefix in ['OMPI_', 'PMI_', 'PMIX_']:
-            if k.startswith(prefix):
-                removed_environment[k] = v
-                del os.environ[k]
-    try:
-        yield
-    finally:
-        os.environ.update(removed_environment)
-
-
-
-
-# class SubprocVecEnv(VecEnv):
-
-#     def __init__(self, env_fns, context='spawn'):
-#        
-#         self.waiting = False
-#         self.closed = False
-#         nenvs = len(env_fns)
-#         ctx = mp.get_context(context)
-#         self.remotes, self.work_remotes = zip(*[ctx.Pipe() for _ in range(nenvs)])
-#         self.ps = [ctx.Process(target=worker, args=(work_remote, remote, CloudpickleWrapper(env_fn))) for (work_remote, remote, env_fn) in zip(self.work_remotes, self.remotes, env_fns)]
-        
-
-#         for p in self.ps:
-#             p.daemon = True  
-#             with clear_mpi_env_vars():
-#                 p.start()
-
-#         for remote in self.work_remotes:
-#             remote.close()
-
-#         self.remotes[0].send(('get_spaces_spec', None))
-#         observation_space, action_space, v_tgt_field_size, self.spec = self.remotes[0].recv()
-
-#         VecEnv.__init__(self, len(env_fns), observation_space, action_space, v_tgt_field_size)
-
-#     def step_async(self, actions):
-#         self._assert_not_closed()
-#         for remote, action in zip(self.remotes, actions):
-#             remote.send(('step', action))
-#         self.waiting = True
-
-#     def step_wait(self):
-#         self._assert_not_closed()
-#         results = [remote.recv() for remote in self.remotes]
-#         self.waiting = False
-#         obs, rews, dones, infos = zip(*results)
-#         return np.stack(obs), np.stack(rews), np.stack(dones), infos
-
-#     def reset(self):
-#         self._assert_not_closed()
-#         for remote in self.remotes:
-#             remote.send(('reset', None))
-#         return np.stack([remote.recv() for remote in self.remotes])
-
-#     def close_extras(self):
-#         self.closed = True
-#         if self.waiting:
-#             try:
-#                 results = [remote.recv() for remote in self.remotes]
-#             except EOFError:  # nothing to receive / closed by garbage collection
-#                 pass
-#         for remote in self.remotes:
-#             remote.send(('close', None))
-#         for p in self.ps:
-#             p.join()
-
-#     def _assert_not_closed(self):
-#         assert not self.closed, 'Trying to operate on a SubprocVecEnv after calling close()'
-
-#     def __del__(self):
-#         if not self.closed:
-#             self.close()
-
-
-
-
-
-
-
-
-
-
-##########################
-
-
-
-
 
  
 def worker(i, remote, parent_remote, env_fn_wrapper):
@@ -585,25 +412,7 @@ class CloudpickleWrapper():
 
 
 class VecEnv():
-
-    # def __init__(self, env_fns, context='spawn'):
-        
-    #     self.closed = False 
-
-    #     ctx = mp.get_context(context)
-
-
-    #     self.remotes, self.work_remotes = zip(*[ctx.Pipe() for _ in range(len(env_fns))])
  
-    #     self.ps = [ctx.Process(target=worker, args=(i, work_remote, remote, CloudpickleWrapper(env_fn))) for i, (work_remote, remote, env_fn) in enumerate(zip(self.work_remotes, self.remotes, env_fns))]
-  
-
-    #     for p in self.ps:
-    #         p.daemon = True  # if the main process crashes, we should not cause things to hang
-      
-    #         with clear_mpi_env_vars():
- 
-    #             p.start() 
 
  
     def __init__(self, env_fns):
@@ -627,12 +436,7 @@ class VecEnv():
         self.remotes[0].send(('get_spaces_spec', None))
 
         self.observation_space, self.action_space, self.v_tgt_field_size, self.spec = self.remotes[0].recv() 
-
-        # self.reset()
-
-        # print(observation_space, action_space, v_tgt_field_size, spec)
-        
-
+ 
 
     def step(self, actions): # actions: (n_env, n_actions) numpy array.
         for i in range(len(self.remotes)): 

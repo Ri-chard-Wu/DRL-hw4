@@ -7,7 +7,7 @@ class Memory:
 
     def __init__(self, max_size, observation_shape, action_shape, dtype='float32'):
         self.observation_shape = observation_shape
-        self.v_tgt_field_size = observation_shape[0] - (339 - 2*11*11) # 5
+        
         self.action_shape = action_shape
         self.dtype = dtype
 
@@ -19,14 +19,12 @@ class Memory:
 
         self.max_size = max_size
         self.pointer = 0
-        self.size = 0
-        self.current_obs = None
+        self.size = 0 
 
 
-    def store_transition(self, obs, actions, rewards, dones, next_obs, training=True):
+    def store_transition(self, obs, actions, rewards, dones, next_obs):
 
-        """ add transition to memory; overwrite oldest if memory is full """
-        if not training: return
+     
 
         # assert 2d arrays coming in
         obs, actions, rewards, dones, next_obs = np.atleast_2d(obs, actions, rewards, dones, next_obs)
@@ -51,17 +49,17 @@ class Memory:
 
 
 
-    def initialize(self, env, n_prefill_steps=1000, training=True):
-        if not training:
-            return
- 
-        self.current_obs = env.reset()
+    def prefill(self, env, n_prefill_steps=10):
+      
+        obs = env.reset()
 
         for _ in range(n_prefill_steps):
             actions = np.random.uniform(-1, 1, (env.num_envs,) + self.action_shape) 
             next_obs, r, done, info = env.step(actions)
-            r_aug = np.vstack([i.get('rewards', 0) for i in info])
-            self.store_transition(self.current_obs, actions, r + r_aug, done, next_obs, training)
-            self.current_obs = next_obs
+            r_aug = np.vstack([i.get('rewards', 0) for i in info]) # (n_env, 1)
+            self.store_transition(obs, actions, r + r_aug, done, next_obs)
+            obs = next_obs
+
+            print(f'prefill: {_}')
 
 

@@ -37,25 +37,20 @@ class DisagreementExploration():
 
         # self.idxs: array([ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 17, 18, 19, 20, 61, 62, 63, 64])  
         # self.idxs: (22,)
-
-
-
+ 
         self.lr = args.lr
         self.bonus_scale = args.bonus_scale
-
-
  
         # build graph
         # 1. networks
         self.state_predictors = [MLP(f'state_predictor_{i}', 
                                   hidden_sizes=args.state_predictor_hidden_sizes,
-                                    output_size=len(self.idxs)) for i in range(args.n_state_predictors)]
-
+                                    output_size=len(self.idxs)) for i in range(args.n_state_predictors)] 
 
         self.optimizer = [tf.keras.optimizers.Adam(learning_rate=args.lr) for _ in range(args.n_state_predictors)]
 
 
-    def pre_process(self, obs):
+    def preprocess(self, obs):
         # self.idxs: (22,)   
         obs = tf.gather(obs, self.idxs, axis=1) # (n_env, 22) 
         obs_mean = tf.math.reduce_mean(obs, axis=0) # (22,).
@@ -74,26 +69,30 @@ class DisagreementExploration():
         # obs_std = tf.math.reduce_std(obs, axis=0) # (22,).
        
         # normed_obs = (obs - obs_mean) / (obs_std + 1e-8) # (22,).
-             
-        normed_obs, obs_mean, obs_std = self.pre_process(obs)
+
+        obs = tf.convert_to_tensor(obs, tf.float32)
+        act = tf.convert_to_tensor(act, tf.float32)
+
+        normed_obs, obs_mean, obs_std = self.preprocess(obs)
 
         normed_pred_next_obs = [model(tf.concat([normed_obs, act], 1)) for model in self.state_predictors] # [(n_env, 22), (n_env, 22), ...]
+
+        normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1)  # (B, n_state_predictors, 22)
  
-        return normed_pred_next_obs, obs_mean, obs_std
+        return normed_pred_next_obs.numpy(), obs_mean.numpy(), obs_std.numpy()
 
 
     def get_exploration_bonus(self, obs, act): 
         
         # obs: (n_env, obs_dim) == (n_env, 102).
         # act: (n_env, act_dim).
- 
-         
+  
         normed_pred_next_obs, obs_mean, obs_std = self.predict(obs, act)
-        normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1).numpy()  # (B, n_state_predictors, 22)
-
-        return self.bonus_scale * np.var(normed_pred_next_obs, axis=(1,2))[:,None] # (B, 1)?
+         
+        return self.bonus_scale * np.var(normed_pred_next_obs, axis=(1,2))[:,None] # (B, 1)
 
  
+
     def select_best_action(self, obs, act):
 
         # obs = (n_env, 104); actions = (n_samples, n_env, action_dim)
@@ -102,19 +101,12 @@ class DisagreementExploration():
         # reshape inputs to (n_samples*n_env, *_dim)
         obs = np.tile(obs, (n_samples, 1, 1)).reshape(-1, obs.shape[-1])
         act = act.reshape(-1, action_dim)
-
-
-        obs = tf.convert_to_tensor(obs, tf.float32)
-        act = tf.convert_to_tensor(act, tf.float32)
-
  
-        normed_pred_next_obs, obs_mean, obs_std = self.predict(obs, act)
-        normed_pred_next_obs = tf.stack(normed_pred_next_obs, axis=1).numpy()  # (B, n_state_predictors, 22)
-
-        pred_next_obs = normed_pred_next_obs * (obs_std[None,None,:] + 1e-8)\
-                                                + obs_mean[None,None,:]  # (B, n_state_predictors, obs_dim)
  
-        pred_next_obs = pred_next_obs.numpy()
+        normed_pred_next_obs, obs_mean, obs_std = self.predict(obs, act) 
+
+        pred_next_obs = normed_pred_next_obs * (obs_std[None,None,:] + 1e-8) + obs_mean[None,None,:]  # (B, n_state_predictors, obs_dim)
+  
 
         # compute reward, split into 9 subarrays over the last axis.
         height, pitch, roll, dx, dy, dz, dpitch, droll, dyaw = np.split(
@@ -130,10 +122,10 @@ class DisagreementExploration():
         rewards = np.reshape(rewards, [n_samples, n_env, -1, 1])  # (n_samples, n_env, n_state_predictors, 1)
         rewards = np.sum(rewards, 2)  # sum over state predictors; out (n_samples, n_env, 1)
 
-        actions = actions.reshape([n_samples, n_env, action_dim])
+        act = act.reshape([n_samples, n_env, action_dim])
 
         # rewards.argmax(0)[None,...]: (1, n_env, 1)
-        best_actions = np.take_along_axis(actions, rewards.argmax(0)[None,...], 0)  # out (1, n_env, action_dim)
+        best_actions = np.take_along_axis(act, rewards.argmax(0)[None,...], 0)  # out (1, n_env, action_dim)
 
         return np.squeeze(best_actions, 0)
 
@@ -141,23 +133,31 @@ class DisagreementExploration():
 
     def train(self, memory, batch_size):
   
+        losses = 0
         for i in range(len(self.state_predictors)):
 
             model = self.state_predictors[i]
 
             obs, act, _, _, obs_next = memory.sample(batch_size)
-             
-            normed_obs, _, _ = self.pre_process(obs)  
-            normed_next_obs, _, _ = self.pre_process(obs_next)                    
+                
+            obs = tf.convert_to_tensor(obs, tf.float32)
+            act = tf.convert_to_tensor(act, tf.float32) 
+            obs_next = tf.convert_to_tensor(obs_next, tf.float32)
+ 
+
+            normed_obs, _, _ = self.preprocess(obs)  
+            normed_next_obs, _, _ = self.preprocess(obs_next)                    
 
             with tf.GradientTape() as tape: 
                 normed_pred_next_obs = model(tf.concat([normed_obs, act], 1))
 
                 loss = tf.keras.losses.mse(normed_pred_next_obs, normed_next_obs)
+                loss = tf.math.reduce_mean(loss, axis=0)
     
             grads = tape.gradient(loss, model.trainable_variables)
             self.optimizer[i].apply_gradients(zip(grads, model.trainable_variables))
 
                 
-                 
- 
+            losses += loss.numpy()   
+        
+        return losses
