@@ -381,6 +381,7 @@ def worker(i, remote, parent_remote, env_fn_wrapper):
     while True:
         cmd, data = remote.recv()
         if cmd == 'step':
+            # print(f'data.shape: {data.shape}')
             ob, reward, done, info = env.step(data)
             if done:
                 ob = env.reset()

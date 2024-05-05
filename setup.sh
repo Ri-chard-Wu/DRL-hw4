@@ -11,8 +11,8 @@ apt-get install -y libgtk-3-dev
 apt-get install -y qt5-default
 apt-get install -y fonts-dejavu-core
 
-curl -O https://repo.anaconda.com/archive/Anaconda3-2021.05-Linux-x86_64.sh
-sha256sum Anaconda3-2021.05-Linux-x86_64.sh
+# curl -O https://repo.anaconda.com/archive/Anaconda3-2021.05-Linux-x86_64.sh
+# sha256sum Anaconda3-2021.05-Linux-x86_64.sh
 bash Anaconda3-2021.05-Linux-x86_64.sh -b
 echo -e "export PATH=$PATH:/root/anaconda3/bin" >> ~/.bashrc && source ~/.bashrc
 conda init bash && source ~/.bashrc

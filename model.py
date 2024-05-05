@@ -4,8 +4,8 @@ import numpy as np
 import tensorflow as tf
 # import tensorflow_probability as tfp
 
-
-
+import os 
+import pickle
 # def mlp(x, hidden_sizes, output_size, activation, output_activation, output_kernel_initializer, output_bias_initializer):
 
 #     for h in hidden_sizes:
@@ -127,21 +127,6 @@ class MaskedLinear(tf.keras.layers.Layer):
         logdet = tf.reshape(logdet, [1, self.data_dim, out.shape[1]//self.data_dim, x.shape[1]//self.data_dim])
         logdet = tf.tile(logdet, [tf.shape(x)[0], 1, 1, 1])  # output (B, data_dim, out_dim // data_dim, in_dim // data_dim)
 
-
-        # 4. sum with sum_logdets from layers before (BNAF section 3.3)
-        # Compute log det jacobian of the flow (eq 9, 10, 11) using log-matrix multiplication of the different layers.
-        # Specifically for two successive MaskedLinear layers A -> B with logdets A and B of shapes
-        #  logdet A is (B, data_dim, outA_dim, inA_dim)
-        #  logdet B is (B, data_dim, outB_dim, inB_dim) where outA_dim = inB_dim
-        #
-        #  Note -- in the first layer, inA_dim = in_features//data_dim = 1 since in_features == data_dim.
-        #            thus logdet A is (B, data_dim, outA_dim, 1)
-        #
-        #  Then:
-        #  logsumexp(A.transpose(2,3) + B) = logsumexp( (B, data_dim, 1, outA_dim) + (B, data_dim, outB_dim, inB_dim) , dim=-1)
-        #                                  = logsumexp( (B, data_dim, 1, outA_dim) + (B, data_dim, outB_dim, outA_dim), dim=-1)
-        #                                  = logsumexp( (B, data_dim, outB_dim, outA_dim), dim=-1) where dim2 of tensor1 is broadcasted
-        #                                  = (B, data_dim, outB_dim, 1)
 
         sum_logdets = tf.math.reduce_logsumexp(tf.transpose(sum_logdets, [0,1,3,2]) + logdet, axis=-1, keepdims=True)
 
@@ -317,6 +302,28 @@ class V():
 
 
 
+    def get_state_dict(self):
+
+        state_dict = {'v':{}, 'v_tgt': {}}
+
+        for i, w in enumerate(self.v.weights):                    
+            state_dict['v'][w.name] = w
+
+        for i, w in enumerate(self.v_tgt.weights):                    
+            state_dict['v_tgt'][w.name] = w
+
+        return state_dict
+
+
+
+    def load_state_dict(self, state_dict):
+ 
+        for i, w in enumerate(self.v.weights):                                
+            w.assign(state_dict['v'][w.name])
+
+        for i, w in enumerate(self.v.weights):                                
+            w.assign(state_dict['v_tgt'][w.name])
+ 
 
 class Q():
      
@@ -338,6 +345,21 @@ class Q():
         return self.q(tf.concat([obs, act], 1))
 
 
+    def get_state_dict(self):
+
+        state_dict = {'q': {}}
+        for i, w in enumerate(self.q.weights):                    
+            state_dict['q'][w.name] = w
+    
+        return state_dict
+
+
+    def load_state_dict(self, state_dict):
+ 
+        for i, w in enumerate(self.q.weights):                                
+            w.assign(state_dict[w.name])
+ 
+
 
 class DoubleQ():
      
@@ -354,6 +376,20 @@ class DoubleQ():
     def predict(self, obs, act):
         q = tf.math.minimum(self.q1.predict(obs, act), self.q2.predict(obs, act))
         return q
+
+
+    def get_state_dict(self):
+        state_dict = {}
+
+        state_dict['q1'] = self.q1.get_state_dict()
+        state_dict['q2'] = self.q2.get_state_dict()
+
+        return state_dict
+
+    def load_state_dict(self, state_dict):
+        self.q1.load_state_dict(state_dict['q1'])
+        self.q2.load_state_dict(state_dict['q2'])
+
 
 
 
@@ -424,15 +460,63 @@ class SAC:
 
         return policy_loss.numpy(), v_loss, q_loss, alpha_loss.numpy()
 
-    def get_actions(self, obs):
+    def get_actions(self, obs, n_samples=1):
 
         obs = tf.convert_to_tensor(obs, tf.float32)
 
-        act, _ = self.policy(obs, self.args.n_sample_actions)
+        act, _ = self.policy(obs, n_samples)
 
         return act.numpy()
     
 
+    def load_state_dict(self, state_dict): 
 
+        self.v.load_state_dict(state_dict['v'])
+        self.doubleQ.load_state_dict(state_dict['doubleQ'])
+        self.beta = state_dict['beta']
+ 
+        for i, w in enumerate(self.policy.weights):                                
+            w.assign(state_dict['policy'][w.name])
 
  
+
+    def get_state_dict(self): 
+ 
+        state_dict = {}
+        state_dict['v'] = self.v.get_state_dict()
+        state_dict['doubleQ'] = self.doubleQ.get_state_dict()        
+        state_dict['beta'] = self.beta
+ 
+        state_dict['policy'] = {}    
+        for i, w in enumerate(self.policy.weights):                    
+            state_dict['policy'][w.name] = w
+
+        return state_dict
+
+ 
+
+    def save(self, dir_name, name):
+ 
+        if(not os.path.exists(dir_name)): 
+            os.makedirs(dir_name, exist_ok=True)
+
+        path = os.path.join(dir_name, name)
+
+        state_dict = self.get_state_dict()
+        with open(path, 'wb') as f:
+            pickle.dump(state_dict, f)             
+
+        print(f'saved ckpt: {path}')
+
+
+
+    def load(self, dir_name, name):
+        
+        
+        path = os.path.join(dir_name, name)
+        with open(path, 'rb') as f:            
+            state_dict = pickle.load(f)                    
+
+        self.load_state_dict(state_dict)
+
+        print(f'loaded ckpt: {path}')

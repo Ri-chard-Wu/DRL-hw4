@@ -4,7 +4,8 @@ import tensorflow as tf
 from model import MLP
 from env_wrappers import RewardAugEnv
 
-
+import os 
+import pickle
 
  
 class DisagreementExploration():
@@ -161,3 +162,43 @@ class DisagreementExploration():
             losses += loss.numpy()   
         
         return losses
+
+
+ 
+
+    def save(self, dir_name, name):
+ 
+        if(not os.path.exists(dir_name)): 
+            os.makedirs(dir_name, exist_ok=True)
+
+        path = os.path.join(dir_name, name)
+
+        state_dict = {} 
+        for i in range(len(self.state_predictors)):
+
+            state_dict[i] = {}
+            model = self.state_predictors[i]
+
+            for w in model.weights:                    
+                state_dict[i][w.name] = w
+                     
+        with open(path, 'wb') as f:
+            pickle.dump(state_dict, f)     
+ 
+        print(f'saved ckpt: {path}')
+
+
+
+    def load(self, dir_name, name):
+         
+        path = os.path.join(dir_name, name)
+        with open(path, 'rb') as f:            
+            state_dict = pickle.load(f)                    
+
+
+        for i in range(len(self.state_predictors)):
+            for w in self.state_predictors[i].weights:
+                w.assign(state_dict[i][w.name])
+
+        print(f'loaded ckpt: {path}')
+
