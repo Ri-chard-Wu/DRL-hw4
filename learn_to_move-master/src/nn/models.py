@@ -1,9 +1,5 @@
-
-from .final import PolicyNet as FPolicyNet, QValueNet as FQValueNet  # F = final
-
-import numpy as np
-import tensorflow as tf
-
+ 
+import tensorflow as tf 
 from utils import AttrDict
 
 

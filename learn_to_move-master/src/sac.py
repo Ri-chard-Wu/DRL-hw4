@@ -253,21 +253,21 @@ class SAC:
     def calc_q_value_loss(self, observations, actions, rewards, is_done, mask):
         '''
         - T==10.
-        - observations: (n_env, T+1, dim). actions, rewards: (n_env, T, dim). is_done: (n_env, T). 
+        - observations: (n_env, T+1, dim). actions, rewards: (n_env, T, q_dim). is_done: (n_env, T). 
         - mask: (n_env, T).
         '''
 
-        current_q_1 = self.soft_q_net_1(observations[:, :-1], actions) # (n_env, T, dim).
-        current_q_2 = self.soft_q_net_2(observations[:, :-1], actions) # (n_env, T, dim).
+        current_q_1 = self.soft_q_net_1(observations[:, :-1], actions) # (n_env, T, q_dim+1).
+        current_q_2 = self.soft_q_net_2(observations[:, :-1], actions) # (n_env, T, q_dim+1).
 
         with torch.no_grad():
             # action: (n_env, T+1, action_dim).
             action, log_prob = self.sample_action_log_prob(observations)
-            next_q_1 = self.target_q_net_1(observations, action) # (n_env, T+1, dim).
+            next_q_1 = self.target_q_net_1(observations, action) # (n_env, T+1, q_dim+1).
             next_q_2 = self.target_q_net_2(observations, action)
 
 
-        next_q = torch.min(next_q_1[:, 1:], next_q_2[:, 1:]) # (n_env, T, dim).                        
+        next_q = torch.min(next_q_1[:, 1:], next_q_2[:, 1:]) # (n_env, T, q_dim+1).                        
         log_p_for_loss = -self.sac_alpha * log_prob[:, 1:] # (n_env, T, dim).
 
         # roi
