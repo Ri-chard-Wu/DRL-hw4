@@ -1,11 +1,11 @@
 import math
+
 import torch
-from time import time
-import numpy as np
-from torch.nn import MSELoss
 import torch.distributions as dist
 
- 
+from time import time
+import numpy as np
+
 from losses import NStepQValueLossSeparateEntropy
 from models import create_nets
  
@@ -75,10 +75,8 @@ class SAC:
         '''        
         if first done happend at t <= T-1, then mask[t+1:T] will all be 0.
         '''
-
-        mask = torch.ones_like(is_done)
-        mask[:, 1:] = 1.0 - (is_done[:, :-1].cumsum(-1) > 0).to(torch.float32)
- 
+        mask = tf.ones_like(is_done, dtype=tf.float32)
+        mask[:, 1:] = 1.0 - tf.cast(tf.math.cumsum(is_done[:, :-1], axis=-1) > 0, tf.float32)
         return mask[:, -self.n_steps:]
     
 
@@ -94,32 +92,44 @@ class SAC:
         # mean, log_std: (b, T+1, action_dim).
         mean, log_std = self.policy_net(observation_t)
 
-        std = log_std.exp()
-        distribution = dist.Normal(mean, std)
-        z = distribution.rsample() # (b, T+1, action_dim).
-        action = torch.tanh(z) # (b, T+1, action_dim).
+        B, T1, a_dim = mean.shape
+ 
+        std = tf.math.exp(log_std)
+ 
+        distribution = tf.compat.v1.distributions.Normal(mean, std)
+
+ 
+        z = distribution.sample() # (b, T+1, action_dim).
+ 
+        action = tf.math.tanh(z) # (b, T+1, action_dim).
+
+
         log_prob = distribution.log_prob(z) # (b, T+1, action_dim).
 
         # calculate logarithms like a noob:
         # log_prob = log_prob - torch.log(1 - action.pow(2) + 1e-6)
 
-        # calculate logarithms like a pro:
-        log_prob = log_prob - math.log(4.0) + 2 * torch.log(z.exp() + (-z).exp()) # (b, T+1, action_dim).
+        # # calculate logarithms like a pro: 
+        log_prob = log_prob - math.log(4.0) + 2 * tf.math.log(\
+                        tf.math.exp(z) + tf.math.exp(-z)) # (b, T+1, action_dim).
 
-        log_prob = log_prob.sum(-1) # (b, T+1).
+ 
+        log_prob = tf.reduce_sum(log_prob, axis=-1) # (b, T+1).
+
         return action, log_prob  # action: (b, T+1, action_dim), # log_prob: (b, T+1).
     
 
 
     def act_test(self, observation):
-        observation_t = torch.tensor(
-            [[observation]],  # add batch and time dimensions
-            dtype=torch.float32,
-            device=self.device
-        )
-        if self.norm_obs:
-            observation_t = (observation_t - self.obs_mean) / self.obs_std
-     
+
+        # observation_t = torch.tensor(
+        #     [[observation]],  # add batch and time dimensions
+        #     dtype=torch.float32,
+        #     device=self.device
+        # )
+
+        # (1, 1, obs_dim), obs_dim=339.
+        observation_t = tf.convert_to_tensor(observation[None, None, ...], dtype=torch.float32)
 
         action = self.act(observation_t)
         action = action[0, 0].cpu().numpy()  # select batch and time
@@ -128,40 +138,33 @@ class SAC:
 
 
     def act(self, observation_t):
-        with torch.no_grad():
-            mean, log_std = self.policy_net(observation_t)
-        if self.policy_net.training:
-            batch_size = mean.size(0)
-            std = log_std.exp()
-            distribution = dist.Normal(mean, std)
-            action_t = torch.tanh(mean)
-            action_t[batch_size // 2:] = torch.tanh(distribution.sample()[batch_size // 2:])
-        else:
-            action_t = torch.tanh(mean)
+        
+        mean, log_std = self.policy_net(observation_t)
+
+        B = mean.shape(0) # b.
+
+        std = tf.math.exp(log_std)
+        distribution = tf.compat.v1.distributions.Normal(mean, std)
+
+        action_t = tf.math.tanh(mean)
+        action_t[B // 2:] = tf.math.tanh(distribution.sample()[B // 2:])
+      
         return action_t
 
 
 
     def act_q(self, observation):
-        
-        observation_t = torch.tensor(
-            observation,
-            dtype=torch.float32,
-            device=self.device
-        )
+         
+        observation_t = tf.convert_to_tensor(observation, dtype=torch.float32)
 
-        observation_t.unsqueeze_(1)
-
-        if self.norm_obs:
-            observation_t = (observation_t - self.obs_mean) / self.obs_std
-
-        torch.Size()
+        # observation_t.unsqueeze_(1)
+        observation_t = tf.expand_dims(observation_t, axis=1)
 
         action_t = self.act(observation_t)
-        action = action_t.squeeze(1)
-        action = action.cpu().numpy()
-       
-        return action
+        
+        action_t = tf.squeeze(action_t, axis=1)
+
+        return action_t.numpy()
 
 
 
@@ -170,9 +173,6 @@ class SAC:
             return torch.tensor(x, dtype=torch.float32, device=self.device)
 
         observation_t, actions, rewards, is_done = map(t, batch)
-
-        if self.norm_obs:
-            observation_t = (observation_t - self.obs_mean) / self.obs_std
 
         return observation_t, actions, rewards, is_done
 
