@@ -18,10 +18,17 @@ import copy
 
 
 env = L2M2019Env(visualize=True)
-observation = env.reset()
 
-for i in range(200):
-    observation, reward, done, info = env.step(env.action_space.sample())
+
+while(1):
+
+    observation = env.reset()
+
+    
+    print(f"footstep: {env.d_reward['weight']['footstep']}, effort: {env.d_reward['weight']['effort']}, v_tgt: {env.d_reward['weight']['v_tgt']}")
+ 
+    for i in range(200):
+        observation, reward, done, info = env.step(env.action_space.sample())
 
 
 

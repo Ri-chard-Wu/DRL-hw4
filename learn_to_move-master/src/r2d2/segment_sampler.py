@@ -1,10 +1,7 @@
 import numpy as np 
 
-
-
-
-
-
+ 
+import tensorflow as tf
 
 
 class SegmentSampler:
@@ -28,32 +25,23 @@ class SegmentSampler:
 
         self.previous_half_segment = None
         self.current_observation = observation
-        self.actor_state = None
-        self.critic_state = None
+    
 
 
 
     def sample_first_half_segment(self):
 
-        first_half_segment = self._sample_half_segment(
-            self.current_observation, self.actor_state, self.critic_state
-        )
+        segment, observation = self._sample_half_segment(self.current_observation)
 
-        segment, obs_and_state = first_half_segment
-        observation, actor_state, critic_state = obs_and_state
-
+       
         self.previous_half_segment = segment
 
         self.current_observation = observation
-        self.actor_state = actor_state
-        self.critic_state = critic_state
+  
 
 
-
-
-    def _sample_half_segment(self, observation, actor_state, critic_state):
-
-         
+    def _sample_half_segment(self, observation):
+ 
         observations = []
         actions = []
         rewards = []
@@ -63,8 +51,7 @@ class SegmentSampler:
 
             observations.append(observation)
  
-            actor_state, critic_state, action, reward, observation, done = \
-                                    self._step(observation, actor_state, critic_state)
+            action, reward, observation, done = self._step(observation)
 
           
             # self.q_weights: np.array([2.0, 1.0, 1.0, 1.0, 1.0, 1.0]).
@@ -76,37 +63,27 @@ class SegmentSampler:
             is_done.append(done)
 
             if np.any(done):
-
-
-                actor_state, critic_state = self.agent.zero_state(
-                    actor_state, critic_state, done
-                )
-                
-                
+ 
+         
                 self.reward *= (1.0 - done)
                 self.episode_length *= (1.0 - done)
 
   
 
         segment = (np.array(observations), np.array(actions), np.array(rewards), np.array(is_done))
-        obs_and_state = (observation, actor_state, critic_state)
-    
-        return segment, obs_and_state 
+      
+        return segment, observation 
 
 
 
-
-
-    def _step(self, observation, actor_state, critic_state):
+    def _step(self, observation):
 
       
-        action, new_actor_state, new_critic_state = self.agent.act_q(
-            observation, actor_state, critic_state
-        )
+        action = self.agent.act_q(observation)
  
         new_observation, reward, done, _ = self.environment.step(action)
       
-        return new_actor_state, new_critic_state, action, reward, new_observation, done
+        return action, reward, new_observation, done
 
 
 
@@ -120,57 +97,15 @@ class SegmentSampler:
         ]
         return segment
 
-
-
-    def reflect_segment(self, segment):
-        observation, action, reward, done = segment
-        v_tgt, observation = observation[:, :, 11 * 11 * 2], observation[:, :, 11 * 11 * 2:]
-        reflected_v_tgt = self.reflect_v_tgt(v_tgt)
-        reflected_obs = self.reflect_observation(observation)
-        reflected_obs = np.concatenate([reflected_v_tgt, reflected_obs], axis=-1)
-
-        reflected_action = self.reflect_action(action)
-        reflected_reward = np.copy(reward)
-        reflected_done = np.copy(done)
-        reflected_segment = (
-            reflected_obs, reflected_action, reflected_reward, reflected_done
-        )
-        return reflected_segment
-
-
-    @staticmethod
-    def reflect_v_tgt(v_tgt):
-  
-        return v_tgt
-
-    @staticmethod
-    def reflect_observation(observation):
-        # TODO: implement ASAP
-        pelvis = observation[:, :, :7]
-        legs = observation[:, :, 7:]
-        return observation
-
-    @staticmethod
-    def reflect_action(action):
-        leg_1, leg_2 = action[:, :, :11], action[:, :, 11:]
-        reflected_action = np.concatenate([leg_2, leg_1], axis=-1)
-        return reflected_action
-
+ 
 
 
     def sample(self):
-
-        # returns (
-        #          the segment,
-        #          actor's & critic's states at the beginning of the segment,
-        #          priority of the segment)
-
-        half_segment, obs_and_state = self._sample_half_segment(
-            self.current_observation, self.actor_state, self.critic_state)
  
- 
-        new_observation, actor_state, critic_state = obs_and_state
 
+        half_segment, new_observation = self._sample_half_segment(self.current_observation)
+ 
+  
         # obs, act, rew: (n_env, T, dim), don: (n_env, T). T==10.
         segment = self._concatenate_segments(half_segment) 
 
@@ -181,19 +116,13 @@ class SegmentSampler:
         )
 
         # segment - obs: (n_env, T+1, dim). act, rew: (n_env, T, dim). don: (n_env, T). T==10.
-        priority_loss = self.agent.calculate_priority_loss(segment, self.actor_state, self.critic_state) # (n_env,).
+        priority_loss = self.agent.calculate_priority_loss(segment) # (n_env,).
  
-        result = (
-            segment, # obs: (n_env, T+1, dim), act, rew: (n_env, T, dim), don: (n_env, T). T==10.
-            self.actor_state,
-            self.critic_state,
-        )
- 
+     
         self.previous_half_segment = half_segment
         self.current_observation = new_observation
-        self.actor_state = actor_state
-        self.critic_state = critic_state
 
-        # result.segment - obs: (n_env, T+1, dim), act, rew: (n_env, T, dim), don: (n_env, T). T==10.
+
+        # segment - obs: (n_env, T+1, dim), act, rew: (n_env, T, dim), don: (n_env, T). T==10.
         # priority_loss: (n_env,)
-        return result, priority_loss  
+        return segment, priority_loss  

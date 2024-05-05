@@ -52,12 +52,15 @@ class SAC:
 
         if q_weights is None:
             q_weights = [1.0 for _ in range(q_dim)]
+
         self.q_dim = q_dim
+
         self.q_weights = torch.tensor(
             [[q_weights]],
             dtype=torch.float32,
             device=self.device
         )
+
         if use_observation_normalization:
             self.norm_obs = True
             mean_and_std = np.load('obs_mean_and_std.npy')
@@ -77,50 +80,6 @@ class SAC:
         else:
             self.norm_obs = False
 
-    def save(self, filename):
-        torch.save({
-            'policy_net': self.policy_net.state_dict(),
-            'log_alpha': self.sac_log_alpha.item(),
-            'q_net_1': self.soft_q_net_1.state_dict(),
-            'q_net_2': self.soft_q_net_2.state_dict(),
-
-            'policy_optim': self.policy_optimizer.state_dict(),
-            'q_net_1_optim': self.q_optim_1.state_dict(),
-            'q_net_2_optim': self.q_optim_2.state_dict(),
-            'alpha_optim': self.alpha_optim.state_dict()
-        }, filename)
-
-    def load(self, filename):
-        checkpoint = torch.load(filename)
-        self.policy_net.load_state_dict(checkpoint['policy_net'])
-        self.sac_log_alpha.data = torch.tensor(
-            checkpoint['log_alpha'],
-            dtype=torch.float32,
-            device=self.device
-        )
-        self.sac_alpha = self.sac_log_alpha.exp().item()
-        self.soft_q_net_1.load_state_dict(checkpoint['q_net_1'])
-        self.soft_q_net_2.load_state_dict(checkpoint['q_net_2'])
-        self.target_q_net_1.load_state_dict(checkpoint['q_net_1'])
-        self.target_q_net_2.load_state_dict(checkpoint['q_net_2'])
-
-        if 'policy_optim' in checkpoint:
-            self.policy_optimizer.load_state_dict(checkpoint['policy_optim'])
-            self.q_optim_1.load_state_dict(checkpoint['q_net_1_optim'])
-            self.q_optim_2.load_state_dict(checkpoint['q_net_2_optim'])
-        if 'alpha_optim' in checkpoint:
-            self.alpha_optim.load_state_dict(checkpoint['alpha_optim'])
-
-
-
-    def load_policy(self, filename):
-        checkpoint = torch.load(filename)
-        self.policy_net.load_state_dict(checkpoint['policy_net'])
-        self.sac_log_alpha.data = torch.tensor(
-            checkpoint['log_alpha'],
-            dtype=torch.float32,
-            device=self.device
-        )
 
 
 
@@ -158,54 +117,15 @@ class SAC:
 
 
 
-    def state_to_numpy(self, actor_state, q_1_state, q_2_state):
-        numpy_actor_state = self.policy_net.state_to_numpy(actor_state)
-        numpy_critic_state_1 = self.soft_q_net_1.state_to_numpy(q_1_state)
-        numpy_critic_state_2 = self.soft_q_net_2.state_to_numpy(q_2_state)
-        numpy_critic_state = np.concatenate(
-            (numpy_critic_state_1, numpy_critic_state_2),
-            axis=-1
-        )
-        return numpy_actor_state, numpy_critic_state
 
-
-    def state_from_numpy(self, actor_state, critic_state):
-        actor_state_t = self.policy_net.state_from_numpy(actor_state, self.device)
-        q_1_state, q_2_state = np.split(critic_state, 2, axis=-1)
-        q_1_state_t = self.soft_q_net_1.state_from_numpy(q_1_state, self.device)
-        q_2_state_t = self.soft_q_net_2.state_from_numpy(q_2_state, self.device)
-        return actor_state_t, q_1_state_t, q_2_state_t
-
-
-
-    def zero_state(self, actor_state, critic_state, done):
-
-        done = torch.tensor(done, dtype=torch.float32, device=self.device)
-
-        actor_state, q_1_state, q_2_state = self.state_from_numpy(
-            actor_state, critic_state
-        )
-
-        actor_state = self.policy_net.zero_state(actor_state, done)
-        q_1_state = self.soft_q_net_1.zero_state(q_1_state, done)
-        q_2_state = self.soft_q_net_2.zero_state(q_2_state, done)
-
-        actor_state, critic_state = self.state_to_numpy(
-            actor_state, q_1_state, q_2_state
-        )
-        return actor_state, critic_state
-
-
-
-
-    def sample_action_log_prob(self, observation_t, policy_state_t):
+    def sample_action_log_prob(self, observation_t):
 
         '''
         observation_t: (b, T+1, dim), T=10.
         '''
 
         # mean, log_std: (b, T+1, action_dim).
-        mean, log_std, _ = self.policy_net(observation_t, policy_state_t)
+        mean, log_std = self.policy_net(observation_t)
 
         std = log_std.exp()
         distribution = dist.Normal(mean, std)
@@ -224,7 +144,7 @@ class SAC:
     
 
 
-    def act_test(self, observation, policy_state=None):
+    def act_test(self, observation):
         observation_t = torch.tensor(
             [[observation]],  # add batch and time dimensions
             dtype=torch.float32,
@@ -232,20 +152,17 @@ class SAC:
         )
         if self.norm_obs:
             observation_t = (observation_t - self.obs_mean) / self.obs_std
-        if policy_state is not None:
-            policy_state = self.policy_net.state_from_numpy(
-                policy_state, self.device
-            )
-        action, policy_state = self.act(observation_t, policy_state)
+     
+
+        action = self.act(observation_t)
         action = action[0, 0].cpu().numpy()  # select batch and time
-        policy_state = self.policy_net.state_to_numpy(policy_state)
-        return action, policy_state
+        return action
 
 
 
-    def act(self, observation_t, policy_state_t=None):
+    def act(self, observation_t):
         with torch.no_grad():
-            mean, log_std, new_state = self.policy_net(observation_t, policy_state_t)
+            mean, log_std = self.policy_net(observation_t)
         if self.policy_net.training:
             batch_size = mean.size(0)
             std = log_std.exp()
@@ -254,12 +171,11 @@ class SAC:
             action_t[batch_size // 2:] = torch.tanh(distribution.sample()[batch_size // 2:])
         else:
             action_t = torch.tanh(mean)
-        return action_t, new_state
+        return action_t
 
 
 
-    def act_q(self, observation,
-              policy_state=None, q_state=None):
+    def act_q(self, observation):
         
         observation_t = torch.tensor(
             observation,
@@ -274,24 +190,11 @@ class SAC:
 
         torch.Size()
 
-        if policy_state is not None and q_state is not None:
-            policy_state, q_1_state, q_2_state = self.state_from_numpy(policy_state, q_state)
-        else:
-            q_1_state, q_2_state = None, None
-
-        action_t, new_policy_state = self.act(observation_t, policy_state)
+        action_t = self.act(observation_t)
         action = action_t.squeeze(1)
         action = action.cpu().numpy()
-
-        with torch.no_grad():
-            _, new_q_1_state = self.soft_q_net_1(observation_t, action_t, q_1_state)
-            _, new_q_2_state = self.soft_q_net_2(observation_t, action_t, q_2_state)
-
-        new_policy_state, new_q_state = self.state_to_numpy(
-            new_policy_state, new_q_1_state, new_q_2_state
-        )
-
-        return action, new_policy_state, new_q_state
+       
+        return action
 
 
 
@@ -322,7 +225,7 @@ class SAC:
 
 
 
-    def calculate_priority_loss(self, data, policy_state, q_state):
+    def calculate_priority_loss(self, data):
 
         '''
             data:
@@ -336,15 +239,10 @@ class SAC:
         mask = self.compute_mask(is_done) # (n_env, T=10)
         
         segment_length = mask.sum(-1) + 1 # (n_env,)
-        policy_state, q_1_state, q_2_state = self.state_from_numpy(
-            policy_state, q_state
-        )
-
+      
         with torch.no_grad():
             q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
-                observations, actions, rewards, is_done, mask,
-                policy_state, q_1_state, q_2_state,
-            )
+                observations, actions, rewards, is_done, mask)
 
         
         priority_loss = self.calculate_priority(q_1_loss, q_2_loss, segment_length)  # (n_env,).
@@ -352,35 +250,31 @@ class SAC:
 
 
 
-    def calc_q_value_loss(self, observations, actions, rewards, is_done, mask,
-                          policy_state, q_1_state, q_2_state):
+    def calc_q_value_loss(self, observations, actions, rewards, is_done, mask):
         '''
         - T==10.
         - observations: (n_env, T+1, dim). actions, rewards: (n_env, T, dim). is_done: (n_env, T). 
         - mask: (n_env, T).
         '''
 
-        current_q_1, _ = self.soft_q_net_1(observations[:, :-1], actions, q_1_state) # (n_env, T, dim).
-        current_q_2, _ = self.soft_q_net_2(observations[:, :-1], actions, q_2_state) # (n_env, T, dim).
+        current_q_1 = self.soft_q_net_1(observations[:, :-1], actions) # (n_env, T, dim).
+        current_q_2 = self.soft_q_net_2(observations[:, :-1], actions) # (n_env, T, dim).
 
         with torch.no_grad():
             # action: (n_env, T+1, action_dim).
-            action, log_prob = self.sample_action_log_prob(observations, policy_state)
-            next_state_q_1, _ = self.target_q_net_1(observations, action, q_1_state) # (n_env, T+1, dim).
-            next_state_q_2, _ = self.target_q_net_2(observations, action, q_2_state)
+            action, log_prob = self.sample_action_log_prob(observations)
+            next_q_1 = self.target_q_net_1(observations, action) # (n_env, T+1, dim).
+            next_q_2 = self.target_q_net_2(observations, action)
 
 
-        min_q = torch.min(next_state_q_1[:, 1:], next_state_q_2[:, 1:]) # (n_env, T, dim).
-        
-        # next_state_value = min_q - self.sac_alpha * log_prob[:, 1:]  # [B, T, q_dim]
-        next_state_value = min_q # (n_env, T, dim).
+        next_q = torch.min(next_q_1[:, 1:], next_q_2[:, 1:]) # (n_env, T, dim).                        
         log_p_for_loss = -self.sac_alpha * log_prob[:, 1:] # (n_env, T, dim).
 
         # roi
         # n_steps: 10 == T.
         current_q_1 = current_q_1[:, -self.n_steps:] # no effect.
         current_q_2 = current_q_2[:, -self.n_steps:] # no effect.
-        next_state_value = next_state_value[:, -self.n_steps:] # no effect.
+        next_q = next_q[:, -self.n_steps:] # no effect.
         log_p_for_loss = log_p_for_loss[:, -self.n_steps:]
         rewards = rewards[:, -self.n_steps:] # no effect.
         is_done = is_done[:, -self.n_steps:] # no effect.
@@ -389,10 +283,10 @@ class SAC:
         # loss
 
         q_1_loss = self.q_loss( # NStepQValueLossSeparateEntropy. # (n_env, T, dim). 
-            current_q_1, next_state_value, log_p_for_loss, rewards, is_done, mask
+            current_q_1, next_q, log_p_for_loss, rewards, is_done, mask
         )
         q_2_loss = self.q_loss( # NStepQValueLossSeparateEntropy. # (n_env, T, dim). 
-            current_q_2, next_state_value, log_p_for_loss, rewards, is_done, mask
+            current_q_2, next_q, log_p_for_loss, rewards, is_done, mask
         )
 
         q_1_loss = q_1_loss.sum(-1) # (n_env, T). 
@@ -456,14 +350,10 @@ class SAC:
                           observations, actions, rewards, is_done,
                           mask, 
                           segment_length, # (b,)
-                          policy_state, q_1_state, q_2_state):
+                          ):
         
-
-
-
         q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T). 
-            observations, actions, rewards, is_done, mask,
-            policy_state, q_1_state, q_2_state
+            observations, actions, rewards, is_done, mask
         )
 
         
@@ -482,17 +372,17 @@ class SAC:
 
     def calc_policy_loss(self, observations, 
                          mask, # (b, T),
-                         policy_state, q_1_state, q_2_state):
+                        ):
         
         # forward, log_pi
 
         # observations: (b, T+1, dim). 
         # action: (b, T+1, action_dim), log_prob: (b, T+1).
-        actions, log_prob = self.sample_action_log_prob(observations, policy_state) # uses policy net.
+        actions, log_prob = self.sample_action_log_prob(observations) # uses policy net.
 
         # target log_prob, Q
-        q_1, _ = self.soft_q_net_1(observations, actions, q_1_state) # (b, T+1, q_dim).
-        q_2, _ = self.soft_q_net_2(observations, actions, q_2_state) # (b, T+1, q_dim).
+        q_1 = self.soft_q_net_1(observations, actions) # (b, T+1, q_dim).
+        q_2 = self.soft_q_net_2(observations, actions) # (b, T+1, q_dim).
 
         q_min = torch.min(q_1, q_2) # (b, T+1, q_dim). 
         target_log_prob = (self.q_weights * q_min).sum(-1) # (b, T+1).
@@ -515,8 +405,7 @@ class SAC:
 
     def learn_p_from_data(self,
                           importance_weights,
-                          observations, mask, segment_length,
-                          policy_state, q_1_state, q_2_state):
+                          observations, mask, segment_length):
         '''
             observations: (b, T+1, dim).  
             segment_length: (b,), 
@@ -525,10 +414,7 @@ class SAC:
         '''
                 
         # policy_loss, alpha_loss: (b, T), q_min: (b, T+1, q_dim).                
-        policy_loss, alpha_loss, q_min = self.calc_policy_loss(
-            observations, mask,
-            policy_state, q_1_state, q_2_state
-        )
+        policy_loss, alpha_loss, q_min = self.calc_policy_loss(observations, mask)
 
         
         policy_loss, alpha_loss = self.optimize_p( # (,)
@@ -544,7 +430,6 @@ class SAC:
 
 
     def learn_from_data(self, data, importance_weights=1.0,  # multiply gradients by 1 is always ok
-                        policy_state=None, q_state=(None, None),
                         learn_policy=True  # True.
                         ):
      
@@ -560,29 +445,21 @@ class SAC:
         importance_weights = torch.tensor(
             importance_weights, dtype=torch.float32, device=self.device
         )
-
-        policy_state, q_1_state, q_2_state = self.state_from_numpy(policy_state, q_state)
-
+ 
 
         # q_1_loss, q_2_loss: (,). priority: (b,).
         q_1_loss, q_2_loss, priority = self.learn_q_from_data(
             importance_weights,
             observations, actions, rewards, is_done,
-            mask, segment_length,
-            policy_state, q_1_state, q_2_state
+            mask, segment_length
         )
         self.soft_target_update()
 
-
-        if learn_policy: # yes.
-            policy_loss, alpha_loss, q_min = self.learn_p_from_data( # (,), (,), (q_dim,)
-                        importance_weights, observations, mask, segment_length,
-                        policy_state, q_1_state, q_2_state)
+        
+        policy_loss, alpha_loss, q_min = self.learn_p_from_data( # (,), (,), (q_dim,)
+                    importance_weights, observations, mask, segment_length)
             
-        else:
-            policy_loss, alpha_loss = [0 for _ in range(2)]
-            q_min = [0 for _ in range(self.q_dim)]
-
+      
 
         mean_batch_reward = (self.q_weights * rewards[:, -self.n_steps:, :]).sum(-1)  # (b, T)
         mean_batch_reward = (mask * mean_batch_reward).sum(-1)  # (b,)

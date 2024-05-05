@@ -2,7 +2,8 @@ import gym
 import json
 import torch
 
-from src.environment.env_utils import init_environment, init_skeleton_environment
+from env_wrappers import make_train_env, make_test_env
+
 from src.nn import create_nets_sac, create_optimizers_sac
 from src.losses import QValueLoss, NStepQValueLoss, NStepQValueLossSeparateEntropy
 from src.sac import SAC
@@ -11,26 +12,7 @@ from src.r2d2.experience_replay import PrioritizedExperienceReplay, ExperienceRe
 from src.r2d2.writer import Writer
 from src.r2d2.trainer import Trainer
  
-
-class AttrDict(dict):
-    def __getattr__(self, key):
-        if key in self:
-            value = self[key]
-            if isinstance(value, dict):
-                return DotDict(value)
-            return value
-        else:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-    def __delattr__(self, key):
-        if key in self:
-            del self[key]
-        else:
-            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{key}'")
-
+from utils import AttrDict
 
 
 
@@ -126,39 +108,14 @@ parameters = AttrDict({
     }
     })
 
-
-
-
+ 
 
 env_num = parameters['environment']['env_num']
 segment_len = parameters['environment']['segment_len']
 
-# ============================== init environment ==============================
-# env_parameters = parameters['environment']
-
-# env_num = env_parameters['env_num']
-# segment_len = env_parameters['segment_len']
-# difficulty = env_parameters['difficulty']
-# accuracy = env_parameters['accuracy']
-# frame_skip = env_parameters['frame_skip']
-# timestep_limit = env_parameters['timestep_limit']
-# weights = env_parameters['weights']
-
-# footstep_weight, effort_weight, v_tgt_weight = weights['reward_weights']
-# alive_bonus, death_penalty, task_bonus = weights['alive_death_task']
-
-
-
-
-# train_env, test_env = init_skeleton_environment(
-#     env_num, segment_len, difficulty, accuracy,
-#     frame_skip, timestep_limit,
-#     footstep_weight, effort_weight, v_tgt_weight,
-#     alive_bonus, death_penalty
-# )
-
-
-train_env, test_env = init_skeleton_environment()
+ 
+train_env = make_train_env()
+test_env make_test_env()
 
 observation_space = [2 * 11 * 11, 97]
 action_space = 22

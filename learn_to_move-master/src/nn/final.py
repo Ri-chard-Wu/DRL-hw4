@@ -29,44 +29,17 @@ class PolicyNet(nn.Module):
 
         self.mean_layer = Layer(hidden_dim, action_dim, False, None)
         self.log_sigma_layer = Layer(hidden_dim, action_dim, False, None)
-        self.fake_state = None
+        
 
-    @staticmethod
-    def zero_state(state, done):
-        state = (state * (1.0 - done).unsqueeze(-1))
-        return state
-
-    @staticmethod
-    def state_to_numpy(state):
-        return state.cpu().numpy()
-
-    @staticmethod
-    def state_from_numpy(state, device):
-        if state is None:
-            state = 0.0
-        state_t = torch.tensor(
-            state, dtype=torch.float32, device=device
-        )
-        return state_t
-
-    def forward(self, observation, state=None):
-        state = torch.zeros(
-            (observation.size(0), 1),
-            dtype=torch.float32,
-            device=observation.device
-        )
+    def forward(self, observation):
+  
         features = self.feature_layers(observation)
 
         mean = self.mean_layer(features)
         log_sigma = self.log_sigma_layer(features)
         log_sigma = torch.clamp(log_sigma, LOG_SIG_MIN, LOG_SIG_MAX)
-        return mean, log_sigma, state
-
-
-
-
-
-
+        return mean, log_sigma
+ 
 
 class QValueNet(nn.Module):
     def __init__(
@@ -88,33 +61,11 @@ class QValueNet(nn.Module):
         self.q_value_layer = Layer(
             hidden_dim, q_value_dim, False, None
         )
+ 
 
-    @staticmethod
-    def zero_state(state, done):
-        state = (state * (1.0 - done).unsqueeze(-1))
-        return state
+    def forward(self, observation, action):
 
-    @staticmethod
-    def state_to_numpy(state):
-        return state.cpu().numpy()
-
-    @staticmethod
-    def state_from_numpy(state, device):
-        if state is None:
-            state = 0.0
-        state_t = torch.tensor(
-            state, dtype=torch.float32, device=device
-        )
-        return state_t
-
-
-    def forward(self, observation, action, state=None):
-        state = torch.zeros(
-            (observation.size(0), 1),
-            dtype=torch.float32,
-            device=observation.device
-        )
         cat_input = torch.cat([observation, action], dim=-1)
         features = self.feature_layers(cat_input)
         q_value = self.q_value_layer(features)
-        return q_value, state
+        return q_value

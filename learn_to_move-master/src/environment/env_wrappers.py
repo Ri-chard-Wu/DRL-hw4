@@ -3,36 +3,41 @@ import gym
 import numpy as np
 from osim.env import L2M2019Env
 
-from .multiprocessing_env import SubprocVecEnv
-from .skeleton_wrapper import SkeletonWrapper
+from utils import AttrDict
 
 
 
+default_args = AttrDict({
+        "train": {
+            "env_num": 32,
+            "segment_len": 10,
+            "difficulty": 3,
+            "accuracy": 1e-4,
+            "frame_skip": 4,
+            "timestep_limit": 10000,
+    
+            'alive_bonus': 0,
+            'death_penalty': -50.0,
+            'task_bonus': 1,
+        },
 
+        "test": {
+            "env_num": 32,
+            "segment_len": 10,
+            "difficulty": 3,
+            "accuracy": 1e-4,
+            "frame_skip": 4,
+            "timestep_limit": 2500,
+    
+            'alive_bonus': 1,
+            'death_penalty': 0,
+            'task_bonus': 1,
+        }
 
-
-default_args = {
-        "env_num": 32,
-        "segment_len": 10,
-        "difficulty": 3,
-        "accuracy": 1e-4,
-        "frame_skip": 4,
-        "timestep_limit": 10000,
-
-
-        # reward_weights.
-        'footstep_weight': 10,
-        'effort_weight': 1,
-        'v_tgt_weight': 1,
-        
-        # alive_death_task.
-        'alive_bonus': 0,
-        'death_penalty': -50.0,
-        'task_bonus': 1,
  
-    }
+    })
  
-
+ 
 
 def worker(i, remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
@@ -117,6 +122,7 @@ class VecEnv():
 
 class SkeletonWrapper(gym.Wrapper):
 
+
     def __init__(self, env, is_train_env, args):
 
         gym.Wrapper.__init__(self, env)
@@ -129,9 +135,8 @@ class SkeletonWrapper(gym.Wrapper):
         self.episode_len = 0
 
         # reward weights from the environment
-        self.footstep_weight = args.footstep_weight
-        self.effort_weight = args.effort_weight
-        self.v_tgt_weight = args.v_tgt_weight
+    
+
         self.alive_bonus = args.alive_bonus
         self.death_penalty = args.death_penalty
         self.task_bonus = args.task_bonus
@@ -140,16 +145,8 @@ class SkeletonWrapper(gym.Wrapper):
         self.step_time = 0
         self.v_tgt_step_penalty = 0
 
-
-
-
-    # @staticmethod
-    # def dict_to_numpy(x):
-    #     if type(x) is dict:
-    #         return [v for k, v in x.items()]
-    #     return x
-    
-
+ 
+ 
     def leg_to_numpy(self, leg):
         observation = []
         for k, v in leg.items():
@@ -157,24 +154,19 @@ class SkeletonWrapper(gym.Wrapper):
                 observation += list(v.values())
             else:
                 observation += v
-                            
-            # observation += self.dict_to_numpy(v)
-
+            
         return np.array(observation)
+ 
 
+    def observation_to_numpy(self, obs):
+        v_tgt_field = obs['v_tgt_field'].reshape(-1) / 10 # (242,)
 
-    @staticmethod
-    def pelvis_to_numpy(pelvis):
-        array = [pelvis['height'], pelvis['pitch'], pelvis['roll']] + pelvis['vel']
-        return np.array(array)
+        p = obs['pelvis']
+        pelvis = np.array([p['height'], p['pitch'], p['roll']] + p['vel']) # (9,)
 
+        r_leg = self.leg_to_numpy(obs['r_leg'])  # (44,)
+        l_leg = self.leg_to_numpy(obs['l_leg'])  # (44,)
 
-
-    def observation_to_numpy(self, observation):
-        v_tgt_field = observation['v_tgt_field'].reshape(-1) / 10 # (242,)
-        pelvis = self.pelvis_to_numpy(observation['pelvis'])  # (9,)
-        r_leg = self.leg_to_numpy(observation['r_leg'])  # (44,)
-        l_leg = self.leg_to_numpy(observation['l_leg'])  # (44,)
         flatten_observation = np.concatenate([v_tgt_field, pelvis, r_leg, l_leg]) # (339,)
         return flatten_observation # (339,)
 
@@ -185,11 +177,10 @@ class SkeletonWrapper(gym.Wrapper):
         obs = self.env.reset()
 
         obs = self.observation_to_numpy(obs) # (339,)
-
  
-        self.env.env.env.env.d_reward['weight']['footstep'] = self.footstep_weight
-        self.env.env.env.env.d_reward['weight']['effort'] = self.effort_weight
-        self.env.env.env.env.d_reward['weight']['v_tgt'] = self.v_tgt_weight
+        assert self.env.env.env.env.d_reward['weight']['footstep'] == 10
+        assert self.env.env.env.env.d_reward['weight']['effort'] == 1
+        assert self.env.env.env.env.d_reward['weight']['v_tgt'] == 1
         
         self.episode_len = 0
 
@@ -213,14 +204,6 @@ class SkeletonWrapper(gym.Wrapper):
 
 
 
-
-    def footstep_reward(self):
-        # TODO: нужно поменять v_tgt и пересчитать reward в соотвествии с self.move
-        # TODO: сейчас работает с v_tgt_weight = 0
-        pass
-
-
-
     @staticmethod
     def crossing_legs_penalty(state_desc):
         # stolen from Scitator
@@ -229,8 +212,10 @@ class SkeletonWrapper(gym.Wrapper):
         right = np.array(state_desc['body_pos']['toes_r']) - pelvis_xyz
         axis = np.array(state_desc['body_pos']['head']) - pelvis_xyz
         cross_legs_penalty = np.cross(left, right).dot(axis)
+
         if cross_legs_penalty > 0:
             cross_legs_penalty = 0.0
+
         return 10 * cross_legs_penalty
 
 
@@ -282,12 +267,7 @@ class SkeletonWrapper(gym.Wrapper):
             return 1.0 - 3.5 * v_tgt_square
         else:
             return 0
-        # elif 0.2 < v_tgt_abs <= 0.5:
-        #     return 0.25
-        # elif 0.1 < v_tgt_abs <= 0.2:
-        #     return 1.0
-        # elif v_tgt_abs <= 0.1:
-        #     return 2.0
+ 
 
     @staticmethod
     def dense_effort_penalty(action):
@@ -349,20 +329,7 @@ class SkeletonWrapper(gym.Wrapper):
         v_tgt = self.env.env.env.env.vtgt.get_vtgt(p_body).T
         return p_body, v_body, v_tgt
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ 
 
 class NormalizedActions(gym.ActionWrapper): # map from tanh's [-1, 1] to action_space's [low, high].
     def action(self, action):
@@ -454,57 +421,46 @@ class SegmentPadWrapper(gym.Wrapper):
 
 
 
-def init_skeleton_environment(args=default_args, is_train_env=True):
+def make_env(args, seed, is_train_env=True):
+
+    def _make_env():
+
+        env = L2M2019Env(
+            visualize=False,
+            integrator_accuracy=args.accuracy,
+            difficulty=args.difficulty,
+            seed=seed
+        )
+
+        env = FrameSkipWrapper(env, args.frame_skip)
+        if(is_train_env): env = SegmentPadWrapper(env, args.segment_len)
+        env = NormalizedActions(env) # map from tanh's [-1, 1] to action_space's [low, high].
+        env = SkeletonWrapper(env, is_train_env, args)
+
+        return env
+
+    return _make_env
+
+
+
+
+def make_train_env(args=default_args.train):
 
     seeds = np.random.choice(1000, size=args.env_num + 1, replace=False)
-
-
-    def make_env(seed):
-
-        def _make_env():
-
-            env = L2M2019Env(
-                visualize=False,
-                integrator_accuracy=args.ccuracy,
-                difficulty=args.difficulty,
-                seed=seed
-            )
-
-            env = FrameSkipWrapper(env, args.frame_skip)
-            env = SegmentPadWrapper(env, args.segment_len)
-            env = NormalizedActions(env) # map from tanh's [-1, 1] to action_space's [low, high].
-        
-            env = SkeletonWrapper(env, is_train_env, args)
  
-            return env
+    env = VecEnv([make_env(args, seeds[i], True) for i in range(args.env_num)])
 
-        return _make_env
+    return env
 
-    train_env = SubprocVecEnv([make_env(seeds[i]) for i in range(env_num)])
+ 
 
+def make_test_env(args=default_args.test):
 
+    seed = np.random.choice(1000, size=1, replace=False)[0]
+ 
+    env = make_env(args, seed, False)
 
-
-    test_env = L2M2019Env(
-        visualize=False,
-        integrator_accuracy=accuracy,
-        difficulty=difficulty,
-        seed=seeds[-1]
-    )
-    test_env = NormalizedActions(
-        FrameSkipWrapper(
-            test_env, frame_skip
-        )
-    )
-    test_env = SkeletonWrapper(
-        test_env, False,
-        frame_skip, 2500,
-        10, 1, 1,
-        1, 0, 1
-    )
-    return train_env, test_env
-
-
+    return env
 
 
 

@@ -10,9 +10,7 @@ class SegmentTree:
             segment_len, # 10.
             observation_shape, # [2 * 11 * 11, 97].
             action_shape, # 22.
-            reward_dim, # 6.
-            actor_state_size, # 1.
-            critic_state_size # 2.            
+            reward_dim, # 6.       
     ):
         self._capacity = capacity
         self._index = 0
@@ -27,9 +25,7 @@ class SegmentTree:
         self._actions = np.zeros((capacity, segment_len, action_shape), dtype=np.float32)
         self._rewards = np.zeros((capacity, segment_len, reward_dim), dtype=np.float32)
         self._is_done = np.zeros((capacity, segment_len), dtype=np.float32)
-        self._actor_states = np.zeros((capacity, actor_state_size), dtype=np.float32)
-        self._critic_states = np.zeros((capacity, critic_state_size), dtype=np.float32)
-
+ 
 
     def _propagate(self, index):
 
@@ -49,17 +45,13 @@ class SegmentTree:
     def _append(self, data):
 
         # obs: (T+1, dim), action, reward: (T, dim), done: (T). T==10.
-        (obs, action, reward, done), actor_state, critic_state = data
+        obs, action, reward, done = data
 
         self._observations[self._index] = obs
         self._actions[self._index] = action
         self._rewards[self._index] = reward
         self._is_done[self._index] = done
-
-        self._actor_states[self._index] = actor_state
-        self._critic_states[self._index] = critic_state
-
-
+ 
     def append(self, data, priority):
         '''
         priority: (,).
@@ -86,17 +78,13 @@ class SegmentTree:
 
 
     def _get_data_by_idx(self, idx):
-        
+      
         data = (
-            (
-                self._observations[idx],
-                self._actions[idx],
-                self._rewards[idx],
-                self._is_done[idx]
-            ),
-            self._actor_states[idx],
-            self._critic_states[idx]
-        )
+            self._observations[idx],
+            self._actions[idx],
+            self._rewards[idx],
+            self._is_done[idx]        
+        )        
         return data
 
 
@@ -149,8 +137,6 @@ class PrioritizedExperienceReplay:
             observation_shape, # [2 * 11 * 11, 97].
             action_shape, # 22.
             reward_dim, # 6.
-            actor_state_size, # 1.
-            critic_state_size # 2.
     ):
  
 
@@ -160,17 +146,13 @@ class PrioritizedExperienceReplay:
             segment_len,
             observation_shape,
             action_shape, 
-            reward_dim,
-            actor_state_size, 
-            critic_state_size
+            reward_dim
         )
 
 
-    def push(self, sample, priority_loss, alpha):
+    def push(self, segment, priority_loss, alpha):
  
              
-        segment, actor_state, critic_state = sample
-
         # obs: (n_env, T+1, dim), action, reward: (n_env, T, dim), done: (n_env, T). T==10.
         obs, action, reward, done = segment
 
@@ -178,10 +160,7 @@ class PrioritizedExperienceReplay:
 
             # if not done[i][0]:  # prevent appending 'broken' segments
             self.tree.append(
-                ( 
-                    (obs[i], action[i], reward[i], done[i]),  # segment itself
-                    actor_state[i], critic_state[i]  # network states
-                ),
+                (obs[i], action[i], reward[i], done[i]),  # segment itself                
                 priority_loss[i] ** alpha
             )
  
@@ -218,20 +197,17 @@ class PrioritizedExperienceReplay:
 
         data, priority, ids, tree_ids = zip(*zip_data)
 
-        # segment: obs, act, rew, don.
-        segment, actor_state, critic_state = zip(*data)
-        segment = map(np.array, zip(*segment))
-        actor_state = np.stack(actor_state, 0)
-        critic_state = np.stack(critic_state, 0)
-        sample = (segment, actor_state, critic_state)
-
+   
+        
+        segment = map(np.array, zip(*data))
+ 
         probs = np.array(priority) / p_total
 
         importance_weights = (self.capacity * probs) ** beta
         importance_weights /= importance_weights.max()
  
  
-        return sample, tree_ids, importance_weights
+        return segment, tree_ids, importance_weights
 
 
 
@@ -243,72 +219,4 @@ class PrioritizedExperienceReplay:
 
 
 
-
-
-
-
-
-class ExperienceReplay:
-    # simple experience replay with the same methods and signatures as the prioritized version
-    def __init__(
-            self, capacity, segment_len,
-            observation_shape, action_shape,
-            actor_state_size, critic_state_size
-    ):
-        self.capacity = capacity
-        self._index = 0
-        self._full = False
-
-        self._observations = np.zeros((capacity, segment_len + 1, sum(observation_shape)), dtype=np.float32)
-        self._actions = np.zeros((capacity, segment_len, action_shape), dtype=np.float32)
-        self._rewards = np.zeros((capacity, segment_len), dtype=np.float32)
-        self._is_done = np.zeros((capacity, segment_len), dtype=np.float32)
-        self._actor_states = np.zeros((capacity, actor_state_size), dtype=np.float32)
-        self._critic_states = np.zeros((capacity, critic_state_size), dtype=np.float32)
-
-    def push(self, sample, *args, **kwargs):
-        push_time_start = time()
-        segment, actor_state, critic_state = sample
-        obs, action, reward, done = segment
-        batch_size = obs.shape[0]
-        for i in range(batch_size):
-            # if not done[i][0]:  # prevent appending 'broken' segments
-            # add data
-            self._observations[self._index] = obs[i]
-            self._actions[self._index] = action[i]
-            self._rewards[self._index] = reward[i]
-            self._is_done[self._index] = done[i]
-            # add states
-            self._actor_states[self._index] = actor_state[i]
-            self._critic_states[self._index] = critic_state[i]
-            # update index
-            self._index = (self._index + 1) % self.capacity
-            self._full = self._full or self._index == 0
-        push_time = time() - push_time_start
-        return push_time
-
-    def sample(self, batch_size, *args, **kwargs):
-        sample_time_start = time()
-        max_id = self.capacity if self._full else self._index
-        indices = np.random.randint(0, max_id, size=batch_size)
-        segment = (
-            self._observations[indices],
-            self._actions[indices],
-            self._rewards[indices],
-            self._is_done[indices]
-        )
-        data = (
-            segment,
-            self._actor_states[indices],
-            self._critic_states[indices]
-        )
-        result = (
-            # data, tree_ids, importance_weights
-            data, None, 1.0
-        )
-        sample_time = time() - sample_time_start
-        return result, sample_time
-
-    @staticmethod
-    def update_priorities(*args, **kwargs):
-        return 0
+ 

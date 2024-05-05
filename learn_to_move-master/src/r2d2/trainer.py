@@ -47,8 +47,7 @@ class Trainer:
         data_group = f.create_group('experience_replay')
         data_group.create_dataset('capacity', data=er.capacity)
         for k, v in er.tree.__dict__.items():
-            # example keys: _capacity, _index, _full, _sum_tree, _observations, _actions,
-            # _rewards, _is_done, _actor_states, _critic_states
+            
             if hasattr(v, '__len__'):
                 data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
             else:
@@ -56,11 +55,15 @@ class Trainer:
         f.close()
         return
 
+
+
     def save_exp_replay(self, epoch):
         print('saving exp_replay...')
         self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
         # with open(self.logdir + 'exp_replay_{}.pickle'.format(epoch), 'wb') as f:
         #     pickle.dump(self.experience_replay, f)
+
+
 
     def load_exp_replay(self, filename):
 
@@ -77,20 +80,27 @@ class Trainer:
         else:
             raise ValueError("don't know ho to parse this type of file")
 
+
+
+
     def _test_agent(self, render): 
         # tests only non-shaped reward
         episode_reward = 0.0
         observation, done = self.test_env.reset(), False
-        agent_state = None
+        
         if render:
             self.test_env.render()
+
         while not done:
-            action, agent_state = self.agent.act_test(observation, agent_state)
+            action = self.agent.act_test(observation)
             observation, reward, done, _ = self.test_env.step(action)
+
             if render:
                 self.test_env.render()
+
             episode_reward += reward 
         return episode_reward
+
 
 
     def test_n(self, n, render):
@@ -117,11 +127,8 @@ class Trainer:
         # priority: (n_env,)        
         new_segment, priority = self.segment_sampler.sample()
 
-        self.experience_replay.push(
-            new_segment, priority, self.priority_exponent
-        )
+        self.experience_replay.push(new_segment, priority, self.priority_exponent)
 
-        
         self.collected_experience += 1
 
 
@@ -132,12 +139,13 @@ class Trainer:
                      ):
 
         # sample a batch of segments of data.
-        segment_data, exp_ids, importance_weights = self.experience_replay.sample(batch_size, self.importance_exponent)
-       
-        segment, actor_state, critic_state = segment_data
-        
+        # segment_data, exp_ids, importance_weights = self.experience_replay.sample(batch_size, self.importance_exponent)
+
+        segment, exp_ids, importance_weights = \
+                        self.experience_replay.sample(batch_size, self.importance_exponent)
+
         losses, q_min, upd_priority = self.agent.learn_from_data( # (5,), (q_dim,), (b,)
-            segment, importance_weights, actor_state, critic_state, learn_policy
+            segment, importance_weights, learn_policy
         )
 
         self.experience_replay.update_priorities(
@@ -246,20 +254,16 @@ class Trainer:
                 data_batch = segments[i:i + batch_size]
                 current_bs = len(data_batch)
                 data_batch = list(map(np.array, zip(*data_batch)))
-                actor_state = np.zeros((current_bs, actor_size), dtype=float)
-                critic_state = np.zeros((current_bs, critic_size), dtype=float)
-                losses, _, priority = self.agent.learn_from_data(
-                    data_batch, 1.0, actor_state, critic_state
-                )
+
+              
+                losses, _, priority = self.agent.learn_from_data(data_batch, 1.0)
                 # add data from the segment file to the experience replay
                 if epoch == n_epoch - 1:
-                    self.experience_replay.push(
-                        (data_batch, actor_state, critic_state),
-                        priority, self.priority_exponent
-                    )
+                    self.experience_replay.push(data_batch, priority, self.priority_exponent)
                
         self.agent.save(self.logdir + 'pretraining.pth')
         print('pretraining done')
+
 
     def load_checkpoint(self, agent_checkpoint_file, load_full):
         if agent_checkpoint_file is not None:
