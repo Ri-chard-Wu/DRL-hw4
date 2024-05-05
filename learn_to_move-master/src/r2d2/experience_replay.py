@@ -1,15 +1,13 @@
 import pickle
 import numpy as np
 from time import time
-
+from parameters import *
 
 class SegmentTree:
     def __init__(
             self, 
             capacity, # 0.25e6.
-            segment_len, # 10.
-            observation_shape, # [2 * 11 * 11, 97].
-            action_shape, # 22.
+            segment_len, # 10. 
             reward_dim, # 6.       
     ):
         self._capacity = capacity
@@ -132,11 +130,9 @@ class SegmentTree:
 class PrioritizedExperienceReplay:
     def __init__(
             self, 
-            capacity, # 0.25e6.
             segment_len, # 10.
-            observation_shape, # [2 * 11 * 11, 97].
-            action_shape, # 22.
             reward_dim, # 6.
+            capacity=250000
     ):
  
 
@@ -144,8 +140,6 @@ class PrioritizedExperienceReplay:
         self.tree = SegmentTree(
             capacity, 
             segment_len,
-            observation_shape,
-            action_shape, 
             reward_dim
         )
 

@@ -12,7 +12,7 @@ from models import create_nets
 
 import tensorflow as tf 
 from utils import AttrDict
-
+from parameters import *
 
 
 default_args = AttrDict({
@@ -31,14 +31,14 @@ default_args = AttrDict({
 class SAC:
     
 
-    def __init__(self, observation_space, action_space, args=default_args):
+    def __init__(self, args=default_args):
 
         self.soft_tau = args.soft_tau
         self.device = 'cpu'
 
 
         policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2, policy_optim,\
-                        q1_optim, q2_optim = create_nets(observation_space, action_space)
+                        q1_optim, q2_optim = create_nets()
  
         self.policy_net = policy_net
         self.soft_q_net_1 = q_net_1
@@ -55,7 +55,7 @@ class SAC:
                     args.gamma, args.q_weights, n_steps=args.n_step_loss, rescaling=args.rescaling)
  
 
-        self.target_entropy = -action_space # -22.
+        self.target_entropy = -action_shape # -22.
 
        
         self.sac_log_alpha = tf.Variable(initial_value=0, trainable=True, dtype=tf.float32)
@@ -94,28 +94,7 @@ class SAC:
         return mask[:, -self.n_steps:]
     
 
-
-    def train(self):
-        self.policy_net.train()
-        self.soft_q_net_1.train()
-        self.soft_q_net_2.train()
-
-
-    def eval(self):
-        self.policy_net.eval()
-        self.soft_q_net_1.eval()
-        self.soft_q_net_2.eval()
-
-
-    def actor_train(self):
-        self.policy_net.train()
-
-
-
-    def actor_eval(self):
-        self.policy_net.eval()
-
-
+ 
 
 
     def sample_action_log_prob(self, observation_t):

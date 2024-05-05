@@ -5,30 +5,34 @@ from tqdm import trange
 
 import h5py
 
+from parameters import trainer_args as args
 
+
+
+ 
 class Trainer:
-    def __init__(self,
-                 env_num, test_env, segment_sampler,
-                 logdir, agent, experience_replay,
-                 start_priority_exponent, end_priority_exponent,
-                 start_importance_exponent, end_importance_exponent,
-                 q_dim):
+ 
+    def __init__(self, env_num, test_env, segment_sampler, agent, experience_replay):
+
         self.test_env = test_env
         self.segment_sampler = segment_sampler
-        self.logdir = logdir
+        # self.logdir = logdir
         
-        self.agent = agent
-        self.q_dim = q_dim
+        self.agent = agent 
         self.experience_replay = experience_replay
 
-        self.priority_exponent = start_priority_exponent # 0.2.
-        self.end_priority_exponent = end_priority_exponent # 0.9.
-        self.importance_exponent = start_importance_exponent
-        self.end_importance_exponent = end_importance_exponent
+        self.priority_exponent = args.start_priority_exponent # 0.2.
+        self.end_priority_exponent = args.end_priority_exponent # 0.9.
+        self.importance_exponent = args.start_importance_exponent
+        self.end_importance_exponent = args.end_importance_exponent
 
         self.best_reward = -float('inf')
         self.collected_experience = 0
         self.exp_replay_save_frequency = env_num * self.experience_replay.capacity // 2
+
+
+
+
 
     @staticmethod
     def load_experience_replay_from_h5(er, filename):
@@ -59,11 +63,8 @@ class Trainer:
 
     def save_exp_replay(self, epoch):
         print('saving exp_replay...')
-        self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
-        # with open(self.logdir + 'exp_replay_{}.pickle'.format(epoch), 'wb') as f:
-        #     pickle.dump(self.experience_replay, f)
-
-
+        # self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
+    
 
     def load_exp_replay(self, filename):
 
@@ -83,38 +84,37 @@ class Trainer:
 
 
 
-    def _test_agent(self, render): 
+    def _test_agent(self): 
         # tests only non-shaped reward
         episode_reward = 0.0
         observation, done = self.test_env.reset(), False
         
-        if render:
+        if args.render:
             self.test_env.render()
 
         while not done:
             action = self.agent.act_test(observation)
             observation, reward, done, _ = self.test_env.step(action)
 
-            if render:
+            if args.render:
                 self.test_env.render()
 
             episode_reward += reward 
         return episode_reward
 
-
-
-    def test_n(self, n, render):
+ 
+    def test_n(self):
+        
         print('testing agent...')
-        self.agent.actor_eval()
+ 
         mean_total_reward = 0.0
         
-        for i in range(n):
-            episode_reward = self._test_agent(render)
-            if render:
-                print('episode {} reward: {}'.format(i, episode_reward))
+        for i in range(args.test_n):
+            episode_reward = self._test_agent()
+            print('episode {} reward: {}'.format(i, episode_reward))
             mean_total_reward += episode_reward
            
-        mean_total_reward /= n
+        mean_total_reward /= args.test_n
     
     
         return mean_total_reward
@@ -154,25 +154,18 @@ class Trainer:
 
         return losses, q_min # (5,), (q_dim,)
 
-
  
-    def _train_epoch(self,
-                     epoch, 
-                     epoch_size, # 500.
-                     train_steps, # 16.
-                     batch_size, # 256.
-                     importance_delta, priority_delta,
-                     learn_policy=True # True.
-                     ):
         
+    def _train_epoch(self, epoch, importance_delta, priority_delta, learn_policy=True):        
+
         self.agent.train()
 
-        for _ in trange(epoch_size, desc='epoch_{}'.format(epoch)): 
+        for _ in trange(args.epoch_size, desc=f'epoch_{epoch}'): 
  
             self.sample_new_experience() # will push to replay buffer.
 
-            for train_step in range(train_steps):
-                self._train_step(batch_size, learn_policy) # (5,), (q_dim,)
+            for train_step in range(args.train_steps):
+                self._train_step(args.batch_size, learn_policy) # (5,), (q_dim,)
         
             self.importance_exponent += importance_delta
             self.importance_exponent = min(self.end_importance_exponent, self.importance_exponent)
@@ -182,21 +175,43 @@ class Trainer:
 
 
 
-    # batch size here is the number of segments to sample from experience replay
-    def train(self,
-              min_experience_len, # 100.
-              num_epochs, # 40.
-              epoch_size,
-              train_steps, batch_size,
-              test_n, render,
-              prioritization_steps, # 3000.
-              pretrain_critic=False,
-              start_exp_replay_file=None):
+
+
+# trainer_args = AttrDict({
+
+#     "start_priority_exponent": 0.2,
+#     "end_priority_exponent": 0.9,
+
+#     "start_importance_exponent": 0.2,
+#     "end_importance_exponent": 0.9,
+    
+#     "prioritization_steps": 3000,
+#     "exp_replay_checkpoint": None,
+
+#     # "agent_checkpoint": "logs/learning_to_move/8c/epoch_0.pth",
+#     # "load_full": "True"
+ 
+#     "min_experience_len": 100,
+#     "num_epochs": 40,
+#     "epoch_size": 500,
+#     "batch_size": 256,
+#     "train_steps": 16,
+#     "test_n": 3,
+#     "render": False,
+#     "segment_file": None,
+#     "pretrain_critic": False,
+#     "num_pretrain_epoch": 0  
+# })
+   
+    def train(self):
+        '''
+        batch size here is the number of segments to sample from experience replay
+        '''
 
         # end_priority_exponent: 0.9.
         # priority_exponent: 0.2.
-        priority_delta = (self.end_priority_exponent - self.priority_exponent) / prioritization_steps
-        importance_delta = (self.end_importance_exponent - self.importance_exponent) / prioritization_steps
+        priority_delta = (self.end_priority_exponent - self.priority_exponent) / args.prioritization_steps
+        importance_delta = (self.end_importance_exponent - self.importance_exponent) / args.prioritization_steps
 
         self.agent.train() # not train, but set to train mode.
 
@@ -204,57 +219,21 @@ class Trainer:
 
         
 
-        for _ in trange(min_experience_len): # 100.
+        for _ in trange(args.min_experience_len): # 100.
             self.sample_new_experience() # will push to replay buffer.
+
         self.save_exp_replay(0)
 
 
 
-        for epoch in range(num_epochs):
+        for epoch in range(args.num_epochs):
 
-            self._train_epoch(
-                epoch, epoch_size, train_steps, batch_size,
-                importance_delta, priority_delta
-            )
+            self._train_epoch(epoch, importance_delta, priority_delta)
 
-            # if self.collected_experience % self.exp_replay_save_frequency == 0:
-            self.save_exp_replay(epoch + 1)  # save exp_replay and agent every epoch
-            self.agent.save(self.logdir + 'epoch_{}.pth'.format(epoch))
+            self.save_exp_replay(epoch + 1)  
 
-            # test after saving
-            test_reward = self.test_n(test_n, render)
+            # TODO: save model.
 
-            if test_reward > self.best_reward:
-                self.best_reward = test_reward
-                self.agent.save(self.logdir + 'best_test_reward.pth')
- 
+            test_reward = self.test_n()
 
-
-    def pretrain_from_segments(self, segments_file, n_epoch, batch_size, actor_size=1, critic_size=1):
-        print('pretraining for {} epochs'.format(n_epoch))
-        with open(segments_file, 'rb') as f:
-            segments = pickle.load(f)
-        num_segments = len(segments)
-        for epoch in trange(n_epoch, desc='pretraining'):
-            np.random.shuffle(segments)
-            for i in range(0, num_segments, batch_size):
-                data_batch = segments[i:i + batch_size]
-                current_bs = len(data_batch)
-                data_batch = list(map(np.array, zip(*data_batch)))
-
-              
-                losses, _, priority = self.agent.learn_from_data(data_batch, 1.0)
-                # add data from the segment file to the experience replay
-                if epoch == n_epoch - 1:
-                    self.experience_replay.push(data_batch, priority, self.priority_exponent)
-               
-        self.agent.save(self.logdir + 'pretraining.pth')
-        print('pretraining done')
-
-
-    def load_checkpoint(self, agent_checkpoint_file, load_full):
-        if agent_checkpoint_file is not None:
-            if load_full:
-                self.agent.load(agent_checkpoint_file)
-            else:
-                self.agent.load_policy(agent_checkpoint_file)
+            

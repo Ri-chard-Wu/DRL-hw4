@@ -1,7 +1,7 @@
  
 import tensorflow as tf 
 from utils import AttrDict
-
+from constants import *
 
 
 default_args = AttrDict({
@@ -78,7 +78,7 @@ class Layer(tf.keras.Model):
 
 class PolicyNet(tf.keras.Model):
 
-    def __init__(self, observation_dim, action_dim, args=default_args.actor):
+    def __init__(self, args=default_args.actor):
         super().__init__() 
 
         h = args.hidden_dim
@@ -87,7 +87,7 @@ class PolicyNet(tf.keras.Model):
         res = args.residual
         drop = args.dropout
          
-        tgt_dim, obs_dim = observation_dim
+        tgt_dim, obs_dim = observation_shape
 
         self.seq = tf.keras.Sequential([
             Layer(obs_dim + tgt_dim, h, ln, afn, res, drop),
@@ -95,8 +95,8 @@ class PolicyNet(tf.keras.Model):
             Layer(h, h, ln, afn, res, drop),
         ])
 
-        self.mean = Layer(h, action_dim, False, None)
-        self.log_sigma = Layer(h, action_dim, False, None)
+        self.mean = Layer(h, action_shape, False, None)
+        self.log_sigma = Layer(h, action_shape, False, None)
 
 
     def call(self, x):
@@ -115,7 +115,7 @@ class PolicyNet(tf.keras.Model):
 
 class QValueNet(tf.keras.Model):
 
-    def __init__(self, observation_dim, action_dim, args=default_args.critic):
+    def __init__(self, args=default_args.critic):
 
  
         h = args.hidden_dim
@@ -128,10 +128,10 @@ class QValueNet(tf.keras.Model):
 
         super().__init__()
  
-        tgt_dim, obs_dim = observation_dim
+        tgt_dim, obs_dim = observation_shape
          
         self.seq = tf.keras.Sequential([
-            Layer(obs_dim + tgt_dim + action_dim, h, ln, afn, res, drop),
+            Layer(obs_dim + tgt_dim + action_shape, h, ln, afn, res, drop),
             Layer(h, h, ln, afn, res, drop),
             Layer(h, h, ln, afn, res, drop),
         ])
@@ -151,15 +151,15 @@ class QValueNet(tf.keras.Model):
 
 
 
-def create_nets(observation_dim, action_dim, args=default_args):
+def create_nets(args=default_args):
  
 
-    policy_net = PolicyNet(observation_dim, action_dim, args.actor)
+    policy_net = PolicyNet(args.actor)
  
-    q_net_1 = QValueNet(observation_dim, action_dim, args.critic)
-    q_net_2 = QValueNet(observation_dim, action_dim, args.critic)
-    target_q_net_1 = QValueNet(observation_dim, action_dim, args.critic)
-    target_q_net_2 = QValueNet(observation_dim, action_dim, args.critic)
+    q_net_1 = QValueNet(args.critic)
+    q_net_2 = QValueNet(args.critic)
+    target_q_net_1 = QValueNet(args.critic)
+    target_q_net_2 = QValueNet(args.critic)
  
     target_q_net_1.set_weights(q_net_1.get_weights())
     target_q_net_2.set_weights(q_net_2.get_weights())

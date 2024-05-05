@@ -5,18 +5,15 @@ import tensorflow as tf
 
 
 class SegmentSampler:
-    def __init__(
-            self,
-            agent, environment, segment_len,
+    def __init__(self, agent, environment, segment_len,
             q_weights # [2.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    ):
+        ):
+
         self.agent = agent
         self.environment = environment # L2M env + some wrappers.
         self.segment_len = segment_len # 10.
         self.q_weights = np.array([q_weights], dtype=float)
-        
-
-        
+         
 
         observation = self.environment.reset()
         batch_size = observation.shape[0]
