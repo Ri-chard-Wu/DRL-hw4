@@ -6,80 +6,80 @@ from torch.nn import MSELoss
 import torch.distributions as dist
 
  
+from losses import NStepQValueLossSeparateEntropy
+from models import create_nets
+ 
+
+import tensorflow as tf 
+from utils import AttrDict
+
+
+
+default_args = AttrDict({
+    "gamma": 0.99,
+    "soft_tau": 1e-2,
+    "n_step_loss": 5,
+    "rescaling": True,
+    "n_step_train": 10,
+    "priority_weight": 0.9,
+    "q_weights": [2.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  })
+  
+
+ 
 
 class SAC:
-    # recurrent soft actor critic
-    def __init__(
-            self,
-            policy_net,
-            soft_q_net_1, soft_q_net_2,
-            target_q_net_1, target_q_net_2,
-            q_loss, # NStepQValueLossSeparateEntropy.
-            policy_optimizer, q_optim_1, q_optim_2,
-            soft_tau, device,
-            action_dim, 
-            n_steps=10, # 10.
-            eta=0.9,
-            q_dim=1, q_weights=None,
-            use_observation_normalization=False
-    ):
-        self.soft_tau = soft_tau
-        self.device = device
+    
 
+    def __init__(self, observation_space, action_space, args=default_args):
+
+        self.soft_tau = args.soft_tau
+        self.device = 'cpu'
+
+
+        policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2, policy_optim,\
+                        q1_optim, q2_optim = create_nets(observation_space, action_space)
+ 
         self.policy_net = policy_net
-        self.soft_q_net_1 = soft_q_net_1
-        self.soft_q_net_2 = soft_q_net_2
+        self.soft_q_net_1 = q_net_1
+        self.soft_q_net_2 = q_net_2
         self.target_q_net_1 = target_q_net_1
         self.target_q_net_2 = target_q_net_2
-        self.q_loss = q_loss
+        
+        self.policy_optimizer = policy_optim
+        self.q_optim_1 = q1_optim
+        self.q_optim_2 = q2_optim
 
-        self.policy_optimizer = policy_optimizer
-        self.q_optim_1 = q_optim_1
-        self.q_optim_2 = q_optim_2
+ 
+        self.q_loss = NStepQValueLossSeparateEntropy(\
+                    args.gamma, args.q_weights, n_steps=args.n_step_loss, rescaling=args.rescaling)
+ 
 
-        self.target_entropy = -action_dim # -22.
-        self.sac_log_alpha = torch.tensor(
-            0,
-            dtype=torch.float32,
-            requires_grad=True,
-            device=device
-        )
-        self.sac_alpha = self.sac_log_alpha.exp().item()
-        self.alpha_optim = torch.optim.Adam([self.sac_log_alpha], lr=1e-3)
+        self.target_entropy = -action_space # -22.
 
-        self.n_steps = n_steps # 10.
-        self.eta = eta  # priority weight
+       
+        self.sac_log_alpha = tf.Variable(initial_value=0, trainable=True, dtype=tf.float32)
 
-        if q_weights is None:
-            q_weights = [1.0 for _ in range(q_dim)]
 
-        self.q_dim = q_dim
+        # self.sac_alpha = self.sac_log_alpha.exp().item()        
+        self.sac_alpha = tf.math.exp(self.sac_log_alpha).numpy()
 
-        self.q_weights = torch.tensor(
-            [[q_weights]],
-            dtype=torch.float32,
-            device=self.device
-        )
+        
+        # self.alpha_optim = torch.optim.Adam([self.sac_log_alpha], lr=1e-3)
+        self.alpha_optim = tf.keras.optimizers.Adam(learning_rate=1e-3) 
 
-        if use_observation_normalization:
-            self.norm_obs = True
-            mean_and_std = np.load('obs_mean_and_std.npy')
-            obs_mean, obs_std = np.split(mean_and_std, 2, axis=0)
-            obs_mean = np.concatenate(
-                [np.zeros(11 * 11 * 2, dtype=float), obs_mean[0], [0.0]], axis=0
-            )
-            obs_std = np.concatenate(
-                [np.ones(11 * 11 * 2, dtype=float), obs_std[0], [1.0]], axis=0
-            )
-            self.obs_mean = torch.tensor(
-                [[obs_mean]], dtype=torch.float32, device=self.device
-            )
-            self.obs_std = torch.tensor(
-                [[obs_std]], dtype=torch.float32, device=self.device
-            )
-        else:
-            self.norm_obs = False
+        self.n_steps = args.n_step_train # 10.
+        self.eta = args.priority_weight  # priority weight
 
+       
+        self.q_dim = q_dim 
+        self.q_weights = tf.Variable(initial_value=[[args.q_weights]], 
+                                    trainable=False, dtype=tf.float32) # (1, 1, q_dim)
+
+        self.norm_obs = False
+
+ 
+ 
 
 
 

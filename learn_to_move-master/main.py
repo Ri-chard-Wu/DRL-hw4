@@ -29,37 +29,12 @@ action_space = 22
 
 
 q_value_dim = 6
-
-policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2, policy_optim, q1_optim, q2_optim = \
-                            create_nets(observation_space, action_space)
+q_weights = [2.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
  
 
+agent = SAC(observation_space, action_space)
 
-# ================================= init agent =================================
-agent_parameters = parameters['agent_parameters']
-gamma = agent_parameters['gamma']
-soft_tau = agent_parameters['soft_tau']
-n_step_loss = agent_parameters['n_step_loss']
-rescaling = agent_parameters['rescaling'] == 'True'
-q_weights = agent_parameters['q_weights']
-
-q_value_loss = NStepQValueLossSeparateEntropy(gamma, device, q_weights, n_steps=n_step_loss, rescaling=rescaling)
-
-n_steps = agent_parameters['n_step_train']  # number of steps from tail of segment to learn from
-# aka eta, priority = eta * max_t(delta) + (1 - eta) * mean_t(delta)
-priority_weight = agent_parameters['priority_weight']
-use_observation_normalization = agent_parameters['use_observation_normalization'] == 'True'
-
-agent = SAC(
-    policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2,
-    q_value_loss,
-    policy_optim, q1_optim, q2_optim,
-    soft_tau, device, action_space, n_steps,
-    priority_weight,
-    q_value_dim, q_weights,
-    use_observation_normalization
-)
 
 # ================== init segment sampler & experience replay ==================
 replay_parameters = parameters['replay_parameters']
