@@ -144,9 +144,9 @@ class Trainer:
         segment, exp_ids, importance_weights = \
                         self.experience_replay.sample(batch_size, self.importance_exponent)
 
-        losses, q_min, upd_priority = self.agent.learn_from_data( # (5,), (q_dim,), (b,)
-            segment, importance_weights, learn_policy
-        )
+        losses, q_min, upd_priority = self.agent.learn_from_data(\
+                        segment, importance_weights, learn_policy) # (5,), (q_dim,), (b,)
+
 
         self.experience_replay.update_priorities(
             exp_ids, upd_priority, self.priority_exponent
@@ -202,27 +202,14 @@ class Trainer:
 
         self.segment_sampler.sample_first_half_segment()
 
+        
 
-        if start_exp_replay_file is not None: # no.
-            self.load_exp_replay(start_exp_replay_file)
-        else: # yes.
-            print('filling buffer...')
-            for _ in trange(min_experience_len): # 100.
-                self.sample_new_experience() # will push to replay buffer.
-            self.save_exp_replay(0)
+        for _ in trange(min_experience_len): # 100.
+            self.sample_new_experience() # will push to replay buffer.
+        self.save_exp_replay(0)
 
 
 
-        if pretrain_critic: # no
-            print('pretraining...')
-            self._train_epoch(
-                -1, epoch_size // 2, train_steps, batch_size,
-                0, 0, False
-            )
-
-
-
-        print('training...')
         for epoch in range(num_epochs):
 
             self._train_epoch(

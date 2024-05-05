@@ -56,7 +56,7 @@ class SegmentSampler:
           
             # self.q_weights: np.array([2.0, 1.0, 1.0, 1.0, 1.0, 1.0]).
             # reward: (n_env, 6).
-            self.reward += (self.q_weights * reward).sum(axis=-1)  # increase reward even if episode is done
+            self.reward += (self.q_weights * reward).sum(axis=-1)  # (n_env,)
             self.episode_length += (1.0 - done)  # increase episode len only for alive environments
             actions.append(action)
             rewards.append(reward)
@@ -110,10 +110,7 @@ class SegmentSampler:
         segment = self._concatenate_segments(half_segment) 
 
 
-        
-        segment[0] = np.concatenate( # (n_env, T+1, dim)
-            (segment[0], new_observation[:, None, :]), 1
-        )
+        segment[0] = np.concatenate((segment[0], new_observation[:, None, :]), 1) # (n_env, T+1, dim)
 
         # segment - obs: (n_env, T+1, dim). act, rew: (n_env, T, dim). don: (n_env, T). T==10.
         priority_loss = self.agent.calculate_priority_loss(segment) # (n_env,).

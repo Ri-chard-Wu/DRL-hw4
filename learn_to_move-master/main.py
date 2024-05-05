@@ -15,99 +15,6 @@ from src.r2d2.trainer import Trainer
 from utils import AttrDict
 
 
-
-parameters = AttrDict({
-    "environment": {
-        "env_num": 32,
-        "segment_len": 10,
-        "difficulty": 3,
-        "accuracy": 1e-4,
-        "frame_skip": 4,
-        "timestep_limit": 10000,
-        "weights": { 
-            "reward_weights":{
-                'footstep_weight': 10,
-                'effort_weight': 1,
-                'v_tgt_weight': 1,
-            },
-
-            "alive_death_task":{
-                'alive_bonus': 0,
-                'death_penalty': -50.0,
-                'task_bonus': 0,
-            }         
-        }
-    },
-
-    "networks": {
-        "model_type": "skeleton_final",
-        "device_str": "cuda",
-        "actor_parameters": {
-        "hidden_dim": 1024,
-        "noisy": "False",
-        "layer_norm": "True",
-        "afn": "elu",
-        "residual": "True",
-        "dropout": 0.1,
-        "learning_rate": 3e-5,
-        "normal": "True"
-        },
-        "critic_parameters": {
-        "hidden_dim": 1024,
-        "noisy": "False",
-        "layer_norm": "True",
-        "afn": "relu",
-        "residual": "True",
-        "dropout": 0.1,
-        "q_value_dim": 6,
-        "learning_rate": 1e-4
-        }
-    },
-
-    "agent_parameters": {
-        "gamma": 0.99,
-        "soft_tau": 1e-2,
-        "n_step_loss": 5,
-        "rescaling": "True",
-        "n_step_train": 10,
-        "priority_weight": 0.9,
-        "q_weights": [2.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        "use_observation_normalization": "False"
-    },
-
-    "replay_parameters": {
-        "log_dir": "logs/learning_to_move/8c_2/",
-        "replay_capacity": 250000,
-        "prioritization": "True",
-        "actor_size": 1,
-        "critic_size": 2
-    },
-
-    "trainer_parameters": {
-        "start_priority_exponent": 0.2,
-        "end_priority_exponent": 0.9,
-        "start_importance_exponent": 0.2,
-        "end_importance_exponent": 0.9,
-        "prioritization_steps": 3000,
-        "exp_replay_checkpoint": "None",
-        # "agent_checkpoint": "logs/learning_to_move/8c/epoch_0.pth",
-        # "load_full": "True"
-    },
-
-    "training_parameters": {
-        "min_experience_len": 100,
-        "num_epochs": 40,
-        "epoch_size": 500,
-        "batch_size": 256,
-        "train_steps": 16,
-        "test_n": 3,
-        "render": "False",
-        "segment_file": "None",
-        "pretrain_critic": "False",
-        "num_pretrain_epoch": 0
-    }
-    })
-
  
 
 env_num = parameters['environment']['env_num']
@@ -120,43 +27,13 @@ test_env make_test_env()
 observation_space = [2 * 11 * 11, 97]
 action_space = 22
 
-# ================================= init nets ==================================
-# available model types: 'feed_forward', 'recurrent', 'attention', 'skeleton'
-network_parameters = parameters['networks']
-model_type = network_parameters['model_type'] # "skeleton_final"
-device = torch.device(network_parameters['device_str'])
 
-# actor parameters
-actor_parameters = network_parameters['actor_parameters']
-hidden_dims_actor = actor_parameters['hidden_dim']
-noisy_actor = actor_parameters['noisy'] == 'True'
-layer_norm_actor = actor_parameters['layer_norm'] == 'True'
-afn_actor = actor_parameters['afn']
-residual_actor = actor_parameters['residual'] == 'True'
-drop_actor = actor_parameters['dropout']
-actor_lr = actor_parameters['learning_rate']
-normal = actor_parameters['normal'] == 'True'
+q_value_dim = 6
 
-# critic parameters
-critic_parameters = network_parameters['critic_parameters']
-hidden_dims_critic = critic_parameters['hidden_dim']
-noisy_critic = critic_parameters['noisy'] == 'True'
-layer_norm_critic = critic_parameters['layer_norm'] == 'True'
-afn_critic = critic_parameters['afn']
-residual_critic = critic_parameters['residual'] == 'True'
-drop_critic = critic_parameters['dropout']
-q_value_dim = critic_parameters['q_value_dim']
-critic_lr = critic_parameters['learning_rate']
+policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2, policy_optim, q1_optim, q2_optim = \
+                            create_nets(observation_space, action_space)
 
-policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2 = create_nets_sac(
-    model_type, observation_space, action_space,
-    hidden_dims_actor, noisy_actor, layer_norm_actor, afn_actor, residual_actor, drop_actor, normal,
-    hidden_dims_critic, noisy_critic, layer_norm_critic, afn_critic, residual_critic, drop_critic,
-    device, q_value_dim + 1  # WARNING: q_value_dim here is reward_dim + 1!
-)
-policy_optimizer, q_optim_1, q_optim_2 = create_optimizers_sac(
-    policy_net, q_net_1, q_net_2, actor_lr, critic_lr
-)
+ 
 
 
 # ================================= init agent =================================
@@ -177,7 +54,7 @@ use_observation_normalization = agent_parameters['use_observation_normalization'
 agent = SAC(
     policy_net, q_net_1, q_net_2, target_q_net_1, target_q_net_2,
     q_value_loss,
-    policy_optimizer, q_optim_1, q_optim_2,
+    policy_optim, q1_optim, q2_optim,
     soft_tau, device, action_space, n_steps,
     priority_weight,
     q_value_dim, q_weights,
