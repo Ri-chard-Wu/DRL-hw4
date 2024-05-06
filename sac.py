@@ -61,7 +61,7 @@ class SAC:
 
        
         self.q_dim = q_dim 
-        self.q_weights = tf.Variable(initial_value=[[args.q_weights]], 
+        self.q_weights = tf.Variable(initial_value=[[args.q_weights + [1]]], 
                                     trainable=False, dtype=tf.float32) # (1, 1, q_dim)
 
         self.norm_obs = False
@@ -129,7 +129,7 @@ class SAC:
         # )
 
         # (1, 1, obs_dim), obs_dim=339.
-        observation_t = tf.convert_to_tensor(observation[None, None, ...], dtype=torch.float32)
+        observation_t = tf.convert_to_tensor(observation[None, None, ...], dtype=tf.float32)
 
         action = self.act(observation_t)
         action = action[0, 0].cpu().numpy()  # select batch and time
@@ -137,7 +137,7 @@ class SAC:
 
 
 
-    def act(self, observation_t):
+    def act(self, observation_t): # no need grad.
         
         mean, log_std = self.policy_net(observation_t)
 
@@ -153,9 +153,9 @@ class SAC:
 
 
 
-    def act_q(self, observation):
+    def act_q(self, observation): # no need grad.
          
-        observation_t = tf.convert_to_tensor(observation, dtype=torch.float32)
+        observation_t = tf.convert_to_tensor(observation, dtype=tf.float32)
 
         # observation_t.unsqueeze_(1)
         observation_t = tf.expand_dims(observation_t, axis=1)
@@ -169,92 +169,102 @@ class SAC:
 
 
     def batch_to_tensors(self, batch):
-        def t(x):
-            return torch.tensor(x, dtype=torch.float32, device=self.device)
-
-        observation_t, actions, rewards, is_done = map(t, batch)
-
-        return observation_t, actions, rewards, is_done
+        def t(x): 
+            return tf.convert_to_tensor(x, dtype=torch.float32)
+ 
+        return map(t, batch)
 
 
 
     def calculate_priority(self, q_1_loss, q_2_loss, segment_length):
         '''
         q_1_loss, q_2_loss: (n_env, T). segment_length: (n_env,).
-        '''
-         
-        q_loss = torch.sqrt(2.0 * torch.max(q_1_loss, q_2_loss)) # (n_env, T).
-        max_over_time = torch.max(q_loss, dim=1)[0] # (,)?! "[0]" should be removed?
-        mean_over_time = q_loss.sum(dim=1) / segment_length # (n_env,).
+        ''' 
+              
+        q_loss = tf.math.sqrt(2.0 * tf.math.maximum(q_1_loss, q_2_loss)) # (n_env, T).
+
+        # max_over_time = torch.max(q_loss, dim=1)[0] # (,)?! "[0]" should be removed?
+        max_over_time = tf.math.reduce_max(q_loss, axis=1)[0]
+ 
+        mean_over_time = tf.reduce_sum(q_loss, axis=1) / segment_length # (n_env,).
 
         priority_loss = self.eta * max_over_time + (1 - self.eta) * mean_over_time # (n_env,).
-        return (priority_loss.detach() + 1e-6).cpu().numpy() # (n_env,).
+
+        return (priority_loss + 1e-6).numpy() # (n_env,).
 
 
 
-    def calculate_priority_loss(self, data):
+    def calculate_priority_loss(self, data): # 
 
         '''
-            data:
+            - no need grad, only used for segment sampler.
+            - data:
                 obs: (n_env, T+1, dim). act, rew: (n_env, T, dim). don: (n_env, T). T==10.
         '''
 
         # almost same as q_value_loss
-        observations, actions, rewards, is_done = self.batch_to_tensors(data)
+        obs, actions, rewards, is_done = self.batch_to_tensors(data)
 
         # if first done for env i happend at t <= T-1, then mask[i, t+1:T] will all be 0.
         mask = self.compute_mask(is_done) # (n_env, T=10)
         
-        segment_length = mask.sum(-1) + 1 # (n_env,)
+        # segment_length = mask.sum(-1) + 1 # (n_env,)
+        segment_length = tf.reduce_sum(mask, axis=-1) + 1
       
-        with torch.no_grad():
-            q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
-                observations, actions, rewards, is_done, mask)
+
+
+        next_q, log_prob = self.pred_next_q(obs) # (b, T+1, q_dim+1), (b, T+1).
+        
+        next_ent = -self.sac_alpha * log_prob # (n_env, T+1).
+
+        next_q = next_q[:, 1:]
+        next_ent = next_ent[:, 1:]
+        
+        q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
+            obs, actions, rewards, is_done, mask, next_q, next_ent)
 
         
         priority_loss = self.calculate_priority(q_1_loss, q_2_loss, segment_length)  # (n_env,).
         return priority_loss # (n_env,).
 
+    
+    
+    def pred_next_q(self, obs):
+         
+        # action: (n_env, T+1, action_dim).
+        action, log_prob = self.sample_action_log_prob(obs)
+        next_q_1 = self.target_q_net_1(obs, action) # (n_env, T+1, q_dim+1).
+        next_q_2 = self.target_q_net_2(obs, action)
 
 
-    def calc_q_value_loss(self, observations, actions, rewards, is_done, mask):
+        next_q = tf.math.minimum(next_q_1, next_q_2) # (n_env, T+1, q_dim+1). 
+
+         
+        return next_q, log_prob # (n_env, T+1, q_dim+1), (n_env, T+1). 
+
+
+
+    def calc_q_value_loss(self, obs, actions, rewards, is_done, mask, next_q, next_ent):
         '''
+        - Need grad if called by learn_q_from_data(); No need if called by calculate_priority_loss().
         - T==10.
-        - observations: (n_env, T+1, dim). actions, rewards: (n_env, T, q_dim). is_done: (n_env, T). 
+        - obs: (n_env, T+1, dim). actions, rewards: (n_env, T, q_dim). is_done: (n_env, T). 
         - mask: (n_env, T).
-        '''
-
-        current_q_1 = self.soft_q_net_1(observations[:, :-1], actions) # (n_env, T, q_dim+1).
-        current_q_2 = self.soft_q_net_2(observations[:, :-1], actions) # (n_env, T, q_dim+1).
-
-        with torch.no_grad():
-            # action: (n_env, T+1, action_dim).
-            action, log_prob = self.sample_action_log_prob(observations)
-            next_q_1 = self.target_q_net_1(observations, action) # (n_env, T+1, q_dim+1).
-            next_q_2 = self.target_q_net_2(observations, action)
-
-
-        next_q = torch.min(next_q_1[:, 1:], next_q_2[:, 1:]) # (n_env, T, q_dim+1).                        
-        log_p_for_loss = -self.sac_alpha * log_prob[:, 1:] # (n_env, T, dim).
+        ''' 
+        current_q_1 = self.soft_q_net_1(obs[:, :-1], actions) # (n_env, T, q_dim+1).
+        current_q_2 = self.soft_q_net_2(obs[:, :-1], actions) # (n_env, T, q_dim+1).
 
         # roi
         # n_steps: 10 == T.
         current_q_1 = current_q_1[:, -self.n_steps:] # no effect.
         current_q_2 = current_q_2[:, -self.n_steps:] # no effect.
         next_q = next_q[:, -self.n_steps:] # no effect.
-        log_p_for_loss = log_p_for_loss[:, -self.n_steps:]
+        next_ent = next_ent[:, -self.n_steps:]
         rewards = rewards[:, -self.n_steps:] # no effect.
         is_done = is_done[:, -self.n_steps:] # no effect.
-
-
-        # loss
-
-        q_1_loss = self.q_loss( # NStepQValueLossSeparateEntropy. # (n_env, T, dim). 
-            current_q_1, next_q, log_p_for_loss, rewards, is_done, mask
-        )
-        q_2_loss = self.q_loss( # NStepQValueLossSeparateEntropy. # (n_env, T, dim). 
-            current_q_2, next_q, log_p_for_loss, rewards, is_done, mask
-        )
+ 
+        q_1_loss = self.q_loss(current_q_1, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
+        q_2_loss = self.q_loss(current_q_2, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
 
         q_1_loss = q_1_loss.sum(-1) # (n_env, T). 
         q_2_loss = q_2_loss.sum(-1) # (n_env, T). 
@@ -263,55 +273,20 @@ class SAC:
 
 
     def soft_target_update(self):
-        for p, tp in zip(self.soft_q_net_1.parameters(), self.target_q_net_1.parameters()):
-            tp.data.copy_(
-                (1.0 - self.soft_tau) * tp.data + self.soft_tau * p.data
-            )
-        for p, tp in zip(self.soft_q_net_2.parameters(), self.target_q_net_2.parameters()):
-            tp.data.copy_(
-                (1.0 - self.soft_tau) * tp.data + self.soft_tau * p.data
-            )
+ 
+        new_weights = [] 
+        for p, tp in zip(self.soft_q_net_1.get_weights(), self.target_q_net_1.get_weights()):
+            new_weights.append((1.0 - self.soft_tau) * tp + self.soft_tau * p)        
+        self.target_q_net_1.set_weights(new_weights)
 
 
-    def optimize_q(self, q_1_loss, q_2_loss, importance_weights, segment_len):
-        '''
-        q_1_loss, q_2_loss: (n_env, T). 
-        segment_len: (n_env,)
-        '''
-        self.q_optim_1.zero_grad()
-        q_1_loss = (importance_weights * q_1_loss.sum(-1) / segment_len).mean()
-        q_1_loss.backward()
-        self.q_optim_1.step()
-
-        self.q_optim_2.zero_grad()
-        q_2_loss = (importance_weights * q_2_loss.sum(-1) / segment_len).mean()
-        q_2_loss.backward()
-        self.q_optim_2.step()
-
-        return q_1_loss.item(), q_2_loss.item()
+        new_weights = [] 
+        for p, tp in zip(self.soft_q_net_2.get_weights(), self.target_q_net_2.get_weights()):
+            new_weights.append((1.0 - self.soft_tau) * tp + self.soft_tau * p)        
+        self.target_q_net_2.set_weights(new_weights)
 
 
-
-    def optimize_p(self, policy_loss, alpha_loss, importance_weights, segment_len):
-
-        # policy_loss, alpha_loss: (b, T), segment_len: (b,).
-
-        self.policy_optimizer.zero_grad()
-        policy_loss = (importance_weights * policy_loss.sum(-1) / segment_len).mean() # (,)
-        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
-        policy_loss.backward()
-        self.policy_optimizer.step()
-
-        self.alpha_optim.zero_grad()
-        alpha_loss = (importance_weights * alpha_loss.sum(-1) / segment_len).mean()
-        alpha_loss.backward()
-        self.alpha_optim.step()
-        self.sac_alpha = self.sac_log_alpha.exp().item()
-
-        return policy_loss.item(), alpha_loss.item()
-
-
-
+ 
     def learn_q_from_data(self,
                           importance_weights,
                           observations, actions, rewards, is_done,
@@ -319,79 +294,84 @@ class SAC:
                           segment_length, # (b,)
                           ):
         
-        q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T). 
-            observations, actions, rewards, is_done, mask
-        )
 
-        
+        next_q, log_prob = self.pred_next_q(obs) # (b, T+1, q_dim+1), (b, T+1).
+
+        next_ent = -self.sac_alpha * log_prob # (n_env, T+1).
+
+        next_q = next_q[:, 1:]
+        next_ent = next_ent[:, 1:]
+
+        with tf.GradientTape() as tape: 
+            q_1_loss, q_2_loss = self.calc_q_value_loss(observations, actions, \
+                    rewards, is_done, mask, next_q, next_ent) # (n_env, T), (n_env, T). 
+            
+            q_1_loss = tf.math.reduce_mean((importance_weights * \
+                        tf.reduce_sum(q_1_loss, axis=-1) / segment_length)) # (,)
+
+            q_2_loss = tf.math.reduce_mean((importance_weights * \
+                        tf.reduce_sum(q_2_loss, axis=-1) / segment_length)) # (,)            
+
+
+        grads = tape.gradient(q_1_loss, self.soft_q_net_1.trainable_variables)
+        self.q_optim_1.apply_gradients(zip(grads, self.soft_q_net_1.trainable_variables))
+       
+        grads = tape.gradient(q_2_loss, self.soft_q_net_2.trainable_variables)
+        self.q_optim_2.apply_gradients(zip(grads, self.soft_q_net_2.trainable_variables))
+ 
         priority = self.calculate_priority(q_1_loss, q_2_loss, segment_length) # (n_env,).
 
-        q_1_loss, q_2_loss = self.optimize_q( # (,), (,)
-            q_1_loss, q_2_loss, importance_weights, segment_length
-        )
-
-        
         return q_1_loss, q_2_loss, priority
 
+ 
 
 
-
-
-    def calc_policy_loss(self, observations, 
-                         mask, # (b, T),
-                        ):
-        
-        # forward, log_pi
-
-        # observations: (b, T+1, dim). 
-        # action: (b, T+1, action_dim), log_prob: (b, T+1).
-        actions, log_prob = self.sample_action_log_prob(observations) # uses policy net.
-
-        # target log_prob, Q
-        q_1 = self.soft_q_net_1(observations, actions) # (b, T+1, q_dim).
-        q_2 = self.soft_q_net_2(observations, actions) # (b, T+1, q_dim).
-
-        q_min = torch.min(q_1, q_2) # (b, T+1, q_dim). 
-        target_log_prob = (self.q_weights * q_min).sum(-1) # (b, T+1).
-
-        # roi
-        log_prob = log_prob[:, -self.n_steps:] # (b, T).
-        target_log_prob = target_log_prob[:, -self.n_steps:] # (b, T).
-
-        # policy and alpha losses
-        policy_loss = mask * (self.sac_alpha * log_prob - target_log_prob) # (b, T),
-        alpha_loss = -(self.sac_log_alpha * (log_prob + self.target_entropy).detach()) # (b, T).
-        alpha_loss = mask * alpha_loss  # (b, T).
-
-        # std = mask * log_std[:, -(self.n_steps + 1):-1].exp().mean(-1)  # [B, T + 1, action_dim]
-        return policy_loss, alpha_loss, q_min
-    
-        
-
-
-
-    def learn_p_from_data(self,
-                          importance_weights,
-                          observations, mask, segment_length):
+    def learn_p_from_data(self, importance_weights, obs, mask, segment_length):
         '''
-            observations: (b, T+1, dim).  
+            obs: (b, T+1, dim).  
             segment_length: (b,), 
             mask: (b, T),
             T=10.      
         '''
                 
-        # policy_loss, alpha_loss: (b, T), q_min: (b, T+1, q_dim).                
-        policy_loss, alpha_loss, q_min = self.calc_policy_loss(observations, mask)
+        # policy_loss, alpha_loss: (b, T), q_min: (b, T+1, q_dim).                        
 
+        with tf.GradientTape() as tape: 
+
+            q_min, log_prob = self.pred_next_q(obs) # (b, T+1, q_dim+1), (b, T+1).
+    
+            target_log_prob = tf.reduce_sum(self.q_weights * next_q, axis=-1) # (b, T+1).
+
+            log_prob = log_prob[:, -self.n_steps:] # (b, T).
+            target_log_prob = target_log_prob[:, -self.n_steps:] # (b, T).
+
+            policy_loss = mask * (self.sac_alpha * log_prob - target_log_prob) # (b, T),
         
-        policy_loss, alpha_loss = self.optimize_p( # (,)
-            policy_loss, alpha_loss, importance_weights, segment_length
-        )
+            policy_loss = tf.math.reduce_mean((importance_weights * \
+                        tf.reduce_sum(policy_loss, axis=-1) / segment_length)) # (,)
+                     
+        grads = tape.gradient(policy_loss, self.policy_net.trainable_variables)
+        grads, _ = tf.clip_by_global_norm(grads, 1)
+        self.policy_optimizer.apply_gradients(zip(grads, self.policy_net.trainable_variables))
+        
+        mean_q_min = tf.math.reduce_mean((tf.reduce_sum(q_min, axis=1) / \
+                            tf.expand_dims(segment_length, axis=-1)), axis=0) # (q_dim,)
+ 
+        
+        
+        log_prob = tf.convert_to_tensor(log_prob.numpy(), dtype=tf.float32) # detach. # (b, T).
+        with tf.GradientTape() as tape:    
+            alpha_loss = -(self.sac_log_alpha * (log_prob + self.target_entropy)) * mask # (b, T).
+            
+            alpha_loss = tf.math.reduce_mean((importance_weights * \
+                        tf.reduce_sum(alpha_loss, axis=-1) / segment_length)) # (,)
+                     
+        grads = tape.gradient(alpha_loss, self.sac_log_alpha) 
+        self.alpha_optim.apply_gradients(zip(grads, self.sac_log_alpha))
+       
+        self.sac_alpha = tf.math.exp(self.sac_log_alpha).numpy()
 
-        # std = (std.sum(-1) / segment_length).mean().item()
-        mean_q_min = (q_min.sum(1) / segment_length.unsqueeze(-1)).mean(0)  # (q_dim,)
-        mean_q_min = mean_q_min.detach().cpu().numpy()
-        return policy_loss, alpha_loss, mean_q_min # (,), (,), (q_dim,)
+        return policy_loss, alpha_loss, mean_q_min.numpy() # (,), (,), (q_dim,)
 
 
 
@@ -423,12 +403,12 @@ class SAC:
         self.soft_target_update()
 
         
-        policy_loss, alpha_loss, q_min = self.learn_p_from_data( # (,), (,), (q_dim,)
-                    importance_weights, observations, mask, segment_length)
-            
-      
-
-        mean_batch_reward = (self.q_weights * rewards[:, -self.n_steps:, :]).sum(-1)  # (b, T)
+        policy_loss, alpha_loss, q_min = self.learn_p_from_data(importance_weights, 
+                                    observations, mask, segment_length) # (,), (q_dim,).
+   
+   
+        q_dim = rewards.shape[-1]
+        mean_batch_reward = (self.q_weights[:,:,:q_dim] * rewards[:, -self.n_steps:, :]).sum(-1)  # (b, T)
         mean_batch_reward = (mask * mean_batch_reward).sum(-1)  # (b,)
         mean_batch_reward = (mean_batch_reward / segment_length).mean().item() # (,)
 

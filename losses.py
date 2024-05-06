@@ -93,7 +93,7 @@ class NStepQValueLossSeparateEntropy(tf.keras.Model):
             # n-step return.
             target_q_value[:, t, :-1] = tf.reduce_sum(reward_to_sum, axis=1) # (b, q_dim)  
             target_q_value[:, t, -1] = log_p_to_sum
-            target_q_value[:, t] = target_q_value[:, t] + next_q  (b, q_dim+1). 
+            target_q_value[:, t] = target_q_value[:, t] + next_q  # (b, q_dim+1). 
 
 
         target_q_value = self.rescaling_fn(target_q_value) # (b, T, q_dim+1)
