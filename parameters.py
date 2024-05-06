@@ -101,16 +101,16 @@ trainer_args = AttrDict({
     "exp_replay_checkpoint": None,
 
  
-    "log_interval": 1,
-    "save_interval": [1, 50][1],
+    "log_interval": 5,
+    "save_interval": [1, 100][1],
+    "save_exp_interval": [1, 500][1],
 
     "save_dir": "ckpt",    
     "load_ckpt": ["ckpt/ckpt-90.h5", "ckpt/best.h5"][1],
+    "load_exp": "ckpt/exp.h5",
 
     "min_experience_len": [2, 50][1],
-
-
-    "num_epochs": 40,
+    
     "epoch_size": 100000000, #500,
     "batch_size": 256,
     "train_steps": 16,

@@ -30,20 +30,7 @@ class SegmentTree:
         self._rewards = np.zeros((capacity, segment_len, reward_dim), dtype=np.float32)
         self._is_done = np.zeros((capacity, segment_len), dtype=np.float32)
  
-    # def save(self, dir_name, name):
-
-
-    #     if(not os.path.exists(dir_name)): 
-    #         os.makedirs(dir_name, exist_ok=True)
-
-    #     path = os.path.join(dir_name, name)
-
-    #     state_dict = {}
- 
   
-    #     with open(path, 'wb') as f:
-    #         pickle.dump(state_dict, f)   
-
 
     def _propagate(self, index):
 

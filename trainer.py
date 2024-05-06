@@ -22,11 +22,7 @@ class Trainer:
 
       
         self.segment_sampler = segment_sampler
-        # self.logdir = logdir
-        
-        self.agent = agent 
-        if("load_ckpt" in args):
-            self.agent.load(args.load_ckpt)
+ 
 
         self.experience_replay = experience_replay
 
@@ -36,60 +32,57 @@ class Trainer:
         self.end_importance_exponent = args.end_importance_exponent
 
 
+        self.agent = agent 
+
+        if("load_ckpt" in args):
+            self.agent.load(args.load_ckpt)
  
 
+        if("load_exp" in args):
+            self.load_exp_replay(args.load_exp)
+
+
+
+    def save_exp_replay(self, dir_name, name):
+
+        print('saving exp_replay...')
  
-    # def load_experience_replay_from_h5(er, filename):
-    #     # update experience replay in-place
-    #     f = h5py.File(filename, mode='r')
-    #     data_group = f['experience_replay']
+        path = os.path.join(dir_name, name)
 
-    #     for key in er.tree.__dict__:
-    #         loaded_value = data_group[key][()]
-    #         er.tree.__dict__.update({key: loaded_value})
 
-    #     f.close()
-    #     return er
- 
+        f = h5py.File(path, mode='w')
+        data_group = f.create_group('experience_replay')
+        # data_group.create_dataset('capacity', data=self.experience_replay.capacity)
 
-    # def save_experience_replay_as_h5(er, filename):
-
-    #     f = h5py.File(filename, mode='w')
-    #     data_group = f.create_group('experience_replay')
-    #     data_group.create_dataset('capacity', data=er.capacity)
-
-    #     for k, v in er.tree.__dict__.items():
+        for k, v in self.experience_replay.tree.__dict__.items():
             
-    #         if hasattr(v, '__len__'):
-    #             data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
-    #         else:
-    #             data_group.create_dataset(k, data=v)  # can't compress scalars
+            if hasattr(v, '__len__'):
+                data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
+            else:
+                data_group.create_dataset(k, data=v)  # can't compress scalars
 
-    #     f.close()
-    #     return
-
-
-
-    # def save_exp_replay(self, epoch):
-
-    #     print('saving exp_replay...')
-    #     # self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
+        f.close()
     
 
-    # def load_exp_replay(self, filename):
+        
+    
 
-    #     print('loading exp replay...')
-    #     filename = str(filename)
+    def load_exp_replay(self, path):
 
-    #     if filename.endswith('.pickle'):
+        print('loading exp replay...')
+  
+        # self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
+        
+        f = h5py.File(path, mode='r')
+        data_group = f['experience_replay']
 
-    #         with open(filename, 'rb') as f:
-    #             self.experience_replay = pickle.load(f)
+        for key in self.experience_replay.tree.__dict__:
+            loaded_value = data_group[key][()]
+            self.experience_replay.tree.__dict__.update({key: loaded_value})
 
-    #     elif filename.endswith('.h5'):
-    #         self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
-    #     else:
-    #         raise ValueError("don't know ho to parse this type of file")
+        f.close()
+
+
 
 
    
@@ -222,3 +215,7 @@ class Trainer:
                 with open("eval.txt", "a") as f: 
                     f.write(f'[{t}] mean_reward: {round(mean_reward, 3)}' + '\n')
 
+
+
+            if(t%args.save_exp_interval==0):
+                self.save_exp_replay(args.save_dir, 'exp.h5')
