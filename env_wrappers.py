@@ -2,7 +2,7 @@ import time
 import gym
 import numpy as np
 from osim.env import L2M2019Env
-
+from multiprocessing import Process, Pipe
  
 from parameters import train_env_args, test_env_args
  
@@ -50,7 +50,7 @@ class CloudpickleWrapper():
 class VecEnv():
  
 
-     def __init__(self, env_fns):
+    def __init__(self, env_fns):
         
         self.closed = False 
         self.num_envs = len(env_fns)

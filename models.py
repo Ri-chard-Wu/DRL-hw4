@@ -5,7 +5,9 @@ from parameters import observation_shape, action_shape
 from parameters import actor_args, critic_args
 
 
- 
+LOG_SIG_MAX = 2
+LOG_SIG_MIN = -20
+
 afns = {
     'relu': tf.keras.layers.ReLU,
     'elu': tf.keras.layers.ELU
@@ -107,7 +109,9 @@ class QValueNet(tf.keras.Model):
         ])
 
         self.q_value = Layer(h, q_dim, False, None)
- 
+     
+        self(tf.random.uniform((1, obs_dim + tgt_dim)), tf.random.uniform((1, action_shape)))
+
 
     def call(self, obs, act):
         
@@ -131,8 +135,10 @@ def create_nets():
     target_q_net_1 = QValueNet()
     target_q_net_2 = QValueNet()
  
+ 
     target_q_net_1.set_weights(q_net_1.get_weights())
     target_q_net_2.set_weights(q_net_2.get_weights())
+
 
     policy_optim = tf.keras.optimizers.Adam(learning_rate=actor_args.lr)  
     q1_optim = tf.keras.optimizers.Adam(learning_rate=critic_args.lr)  

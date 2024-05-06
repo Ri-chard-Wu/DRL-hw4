@@ -1,10 +1,12 @@
 
 from env_wrappers import make_train_env, make_test_env
-from utils import AttrDict
+from sac import SAC
+from segment_sampler import SegmentSampler
+from experience_replay import PrioritizedExperienceReplay
+from trainer import Trainer
 
- 
 train_env = make_train_env()
-test_env make_test_env()
+test_env = make_test_env()
    
 agent = SAC()
 segment_sampler = SegmentSampler(agent, train_env)

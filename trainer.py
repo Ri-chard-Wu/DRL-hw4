@@ -154,7 +154,8 @@ class Trainer:
         self.segment_sampler.sample_first_half_segment()
 
         
-        for _ in trange(args.min_experience_len): # 100.
+        # for _ in trange(args.min_experience_len): # 100.
+        for _ in trange(2): # 100.
             self.sample_new_experience() # will push to replay buffer.
 
         # self.save_exp_replay(0)

@@ -1,8 +1,5 @@
 import math
-
-import torch
-import torch.distributions as dist
-
+ 
 from time import time
 import numpy as np
 
@@ -59,8 +56,7 @@ class SAC:
         self.n_steps = args.n_step_train # 10.
         self.eta = args.priority_weight  # priority weight
 
-       
-        self.q_dim = q_dim 
+    
         self.q_weights = tf.Variable(initial_value=[[args.q_weights + [1]]], 
                                     trainable=False, dtype=tf.float32) # (1, 1, q_dim)
 
@@ -71,12 +67,21 @@ class SAC:
 
 
 
-    def compute_mask(self, is_done): # is_done: (n_env, T).
+    def compute_mask(self, is_done): # is_done: (b, T).
         '''        
         if first done happend at t <= T-1, then mask[t+1:T] will all be 0.
         '''
-        mask = tf.ones_like(is_done, dtype=tf.float32)
-        mask[:, 1:] = 1.0 - tf.cast(tf.math.cumsum(is_done[:, :-1], axis=-1) > 0, tf.float32)
+
+        B = is_done.shape[0]
+
+        # mask = tf.ones_like(is_done, dtype=tf.float32)
+        # mask[:, 1:] = 1.0 - tf.cast(tf.math.cumsum(is_done[:, :-1], axis=-1) > 0, tf.float32)
+        
+        mask = 1.0 - tf.cast(tf.math.cumsum(is_done[:, :-1], axis=-1) > 0, tf.float32)
+        ones = tf.ones((B, 1), dtype=tf.float32)
+        
+        mask = tf.concat([ones, mask], axis=1)
+
         return mask[:, -self.n_steps:]
     
 
@@ -139,16 +144,20 @@ class SAC:
 
     def act(self, observation_t): # no need grad.
         
-        mean, log_std = self.policy_net(observation_t)
-
-        B = mean.shape(0) # b.
-
+        mean, log_std = self.policy_net(observation_t) # (b, T+1, action_dim).
         std = tf.math.exp(log_std)
-        distribution = tf.compat.v1.distributions.Normal(mean, std)
 
-        action_t = tf.math.tanh(mean)
-        action_t[B // 2:] = tf.math.tanh(distribution.sample()[B // 2:])
-      
+        B = mean.shape[0] # b.
+
+
+        dist = tf.compat.v1.distributions.Normal(mean, std)
+
+        # action_t = tf.math.tanh(mean)
+        # action_t[B // 2:] = tf.math.tanh(dist.sample()[B // 2:])
+ 
+        action_t = tf.concat([tf.math.tanh(mean[:B // 2]),
+                            tf.math.tanh(dist.sample()[B // 2:])], axis=0)
+
         return action_t
 
 
@@ -170,7 +179,7 @@ class SAC:
 
     def batch_to_tensors(self, batch):
         def t(x): 
-            return tf.convert_to_tensor(x, dtype=torch.float32)
+            return tf.convert_to_tensor(x, dtype=tf.float32)
  
         return map(t, batch)
 
