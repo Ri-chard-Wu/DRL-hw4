@@ -13,7 +13,11 @@ from parameters import observation_shape, action_shape
 from parameters import sac_args as args
 
 
- 
+import os 
+import pickle
+
+
+
 class SAC:
     
     def __init__(self):
@@ -463,3 +467,41 @@ class SAC:
         return losses, q_min, priority # (5,), (q_dim,), (b,)
 
 
+
+
+    def save(self, dir_name, name):
+ 
+        if(not os.path.exists(dir_name)): 
+            os.makedirs(dir_name, exist_ok=True)
+
+        path = os.path.join(dir_name, name)
+
+        state_dict = {}
+ 
+        state_dict['policy_net'] = self.policy_net.get_weights()
+        state_dict['soft_q_net_1'] = self.soft_q_net_1.get_weights()
+        state_dict['soft_q_net_2'] = self.soft_q_net_2.get_weights()
+        state_dict['target_q_net_1'] = self.target_q_net_1.get_weights()
+        state_dict['target_q_net_2'] = self.target_q_net_2.get_weights()
+ 
+ 
+        with open(path, 'wb') as f:
+            pickle.dump(state_dict, f)             
+
+        print(f'saved ckpt: {path}')
+
+
+
+    def load(self, path):
+        
+        # path = os.path.join(dir_name, name)
+        with open(path, 'rb') as f:            
+            state_dict = pickle.load(f)                    
+ 
+        self.policy_net.set_weights(state_dict['policy_net'])
+        self.soft_q_net_1.set_weights(state_dict['soft_q_net_1'])
+        self.soft_q_net_2.set_weights(state_dict['soft_q_net_2'])
+        self.target_q_net_1.set_weights(state_dict['target_q_net_1'])
+        self.target_q_net_2.set_weights(state_dict['target_q_net_2'])
+           
+        print(f'loaded ckpt: {path}')

@@ -19,6 +19,9 @@ class Trainer:
         # self.logdir = logdir
         
         self.agent = agent 
+        if("load_ckpt" in args):
+            self.agent.load(args.load_ckpt)
+
         self.experience_replay = experience_replay
 
         self.priority_exponent = args.start_priority_exponent # 0.2.
@@ -29,26 +32,62 @@ class Trainer:
 
  
 
-    # def save_exp_replay(self, epoch):
-    #     print('saving exp_replay...')
+ 
+    def load_experience_replay_from_h5(er, filename):
+        # update experience replay in-place
+        f = h5py.File(filename, mode='r')
+        data_group = f['experience_replay']
 
-    #     self.experience_replay
-       
+        for key in er.tree.__dict__:
+            loaded_value = data_group[key][()]
+            er.tree.__dict__.update({key: loaded_value})
 
-    # def load_exp_replay(self, filename):
+        f.close()
+        return er
+ 
 
-    #     print('loading exp replay...')
-    #     filename = str(filename)
+    def save_experience_replay_as_h5(er, filename):
 
-    #     if filename.endswith('.pickle'):
+        f = h5py.File(filename, mode='w')
+        data_group = f.create_group('experience_replay')
+        data_group.create_dataset('capacity', data=er.capacity)
 
-    #         with open(filename, 'rb') as f:
-    #             self.experience_replay = pickle.load(f)
+        for k, v in er.tree.__dict__.items():
+            
+            if hasattr(v, '__len__'):
+                data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
+            else:
+                data_group.create_dataset(k, data=v)  # can't compress scalars
 
-    #     elif filename.endswith('.h5'):
-    #         self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
-    #     else:
-    #         raise ValueError("don't know ho to parse this type of file")
+        f.close()
+        return
+
+
+
+    def save_exp_replay(self, epoch):
+        
+        print('saving exp_replay...')
+        # self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
+    
+
+    def load_exp_replay(self, filename):
+
+        print('loading exp replay...')
+        filename = str(filename)
+
+        if filename.endswith('.pickle'):
+
+            with open(filename, 'rb') as f:
+                self.experience_replay = pickle.load(f)
+
+        elif filename.endswith('.h5'):
+            self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
+        else:
+            raise ValueError("don't know ho to parse this type of file")
+
+
+
+
 
 
 
@@ -125,12 +164,12 @@ class Trainer:
     def _train_epoch(self, epoch, importance_delta, priority_delta, learn_policy=True):        
 
       
-        for _ in trange(args.epoch_size, desc=f'epoch_{epoch}'): 
+        for t in range(args.epoch_size): 
  
             self.sample_new_experience() # will push to replay buffer.
 
             for train_step in range(args.train_steps):
-                self._train_step(args.batch_size, learn_policy) # (5,), (q_dim,)
+                losses, _ = self._train_step(args.batch_size, learn_policy) # (5,), (q_dim,)
         
             self.importance_exponent += importance_delta
             self.importance_exponent = min(self.end_importance_exponent, self.importance_exponent)
@@ -138,6 +177,27 @@ class Trainer:
             self.priority_exponent += priority_delta
             self.priority_exponent = min(self.end_priority_exponent, self.priority_exponent)
 
+
+
+            if(t%args.log_interval==0):
+                
+                print(f'[{t}] losses: {losses.round(3)}')
+
+                # log = {}
+                # log['policy_loss'] = policy_loss.round(4)
+                # log['v_loss'] = v_loss.round(4)
+                # log['q_loss'] = q_loss.round(4)
+                # log['alpha_loss'] = alpha_loss.round(4)
+                # log['expl_loss'] = expl_loss.round(4)
+
+                # s = f't: {t}, ' + str(log)
+
+                with open("train.txt", "a") as f: f.write(f'[{t}] losses: {losses.round(3)}' + '\n')
+
+
+
+            if(t%args.save_interval==0):
+                self.agent.save(args.save_dir, f'ckpt-{t}.h5')
 
 
     def train(self):
@@ -154,7 +214,7 @@ class Trainer:
 
         
         # for _ in trange(args.min_experience_len): # 100.
-        for _ in trange(2): # 100.
+        for _ in trange(50): # 100.
             self.sample_new_experience() # will push to replay buffer.
 
         # self.save_exp_replay(0)
@@ -164,7 +224,7 @@ class Trainer:
 
             self._train_epoch(epoch, importance_delta, priority_delta)
 
-            self.save_exp_replay(epoch + 1)  
+            # self.save_exp_replay(epoch + 1)  
 
             # TODO: save model & relay buffer and do eval.
 

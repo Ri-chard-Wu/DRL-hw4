@@ -29,7 +29,7 @@ action_shape = 22
 
 
 train_env_args = AttrDict({
-            "env_num": 32,
+            "env_num": 16,
             "segment_len": 10,
 
             "difficulty": 3,
@@ -107,13 +107,17 @@ trainer_args = AttrDict({
     "prioritization_steps": 3000,
     "exp_replay_checkpoint": None,
 
-    # "agent_checkpoint": "logs/learning_to_move/8c/epoch_0.pth",
-    # "load_full": "True"
  
+    "log_interval": 1,
+    "save_interval": 30,
+
+    "save_dir": "ckpt",
+    # "load_ckpt": "ckpt/ckpt-5.h5",
+
 
     "min_experience_len": 100,
     "num_epochs": 40,
-    "epoch_size": 500,
+    "epoch_size": 100000000, #500,
     "batch_size": 256,
     "train_steps": 16,
     "test_n": 3,
