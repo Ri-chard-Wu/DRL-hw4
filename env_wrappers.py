@@ -1,10 +1,11 @@
 import time
 import gym
 import numpy as np
+import gym
 from osim.env import L2M2019Env
 from multiprocessing import Process, Pipe
  
-from parameters import train_env_args, test_env_args
+from parameters import train_env_args
  
 
  
@@ -92,6 +93,34 @@ class VecEnv():
         self.closed = True
 
 
+
+
+def obs2vec(obs):
+  
+    def leg_to_numpy(leg):
+        observation = []
+        for k, v in leg.items():
+            if type(v) is dict:
+                observation += list(v.values())
+            else:
+                observation += v
+            
+        return np.array(observation)
+ 
+ 
+    v_tgt_field = obs['v_tgt_field'].reshape(-1) / 10 # (242,)
+
+    p = obs['pelvis']
+    pelvis = np.array([p['height'], p['pitch'], p['roll']] + p['vel']) # (9,)
+
+    r_leg = leg_to_numpy(obs['r_leg'])  # (44,)
+    l_leg = leg_to_numpy(obs['l_leg'])  # (44,)
+
+    flatten_observation = np.concatenate([v_tgt_field, pelvis, r_leg, l_leg]) # (339,)
+    return flatten_observation # (339,)
+
+
+
 class SkeletonWrapper(gym.Wrapper):
 
 
@@ -119,28 +148,28 @@ class SkeletonWrapper(gym.Wrapper):
 
  
  
-    def leg_to_numpy(self, leg):
-        observation = []
-        for k, v in leg.items():
-            if type(v) is dict:
-                observation += list(v.values())
-            else:
-                observation += v
+    # def leg_to_numpy(self, leg):
+    #     observation = []
+    #     for k, v in leg.items():
+    #         if type(v) is dict:
+    #             observation += list(v.values())
+    #         else:
+    #             observation += v
             
-        return np.array(observation)
+    #     return np.array(observation)
  
 
-    def observation_to_numpy(self, obs):
-        v_tgt_field = obs['v_tgt_field'].reshape(-1) / 10 # (242,)
+    # def observation_to_numpy(self, obs):
+    #     v_tgt_field = obs['v_tgt_field'].reshape(-1) / 10 # (242,)
 
-        p = obs['pelvis']
-        pelvis = np.array([p['height'], p['pitch'], p['roll']] + p['vel']) # (9,)
+    #     p = obs['pelvis']
+    #     pelvis = np.array([p['height'], p['pitch'], p['roll']] + p['vel']) # (9,)
 
-        r_leg = self.leg_to_numpy(obs['r_leg'])  # (44,)
-        l_leg = self.leg_to_numpy(obs['l_leg'])  # (44,)
+    #     r_leg = self.leg_to_numpy(obs['r_leg'])  # (44,)
+    #     l_leg = self.leg_to_numpy(obs['l_leg'])  # (44,)
 
-        flatten_observation = np.concatenate([v_tgt_field, pelvis, r_leg, l_leg]) # (339,)
-        return flatten_observation # (339,)
+    #     flatten_observation = np.concatenate([v_tgt_field, pelvis, r_leg, l_leg]) # (339,)
+    #     return flatten_observation # (339,)
 
 
 
@@ -148,7 +177,8 @@ class SkeletonWrapper(gym.Wrapper):
     def reset(self, **kwargs):
         obs = self.env.reset()
 
-        obs = self.observation_to_numpy(obs) # (339,)
+        # obs = self.observation_to_numpy(obs) # (339,)
+        obs = obs2vec(obs) # (339,)
  
         # assert self.env.env.env.env.d_reward['weight']['footstep'] == 10
         # assert self.env.env.env.env.d_reward['weight']['effort'] == 1
@@ -164,7 +194,10 @@ class SkeletonWrapper(gym.Wrapper):
 
         raw_obs, reward, done, info = self.env.step(action)
 
-        obs = self.observation_to_numpy(raw_obs) # (339,)
+        # obs = self.observation_to_numpy(raw_obs) # (339,)
+        obs = obs2vec(raw_obs) # (339,)
+
+
 
         if self.is_train_env: # yes.
             reward = self.shape_reward(action, reward, done)
@@ -303,10 +336,14 @@ class SkeletonWrapper(gym.Wrapper):
 
  
 
-class NormalizedActions(gym.ActionWrapper): # map from tanh's [-1, 1] to action_space's [low, high].
+class NormalizedActions(gym.ActionWrapper): 
+    # map from tanh's [-1, 1] to action_space's [low, high].
     def action(self, action):
-        low_bound = self.action_space.low
-        upper_bound = self.action_space.high
+        low_bound = self.action_space.low # all 0.0.
+        upper_bound = self.action_space.high # all 1.0.
+        # print('######################\n\n')
+        # print(f'self.action_space.low: {self.action_space.low}')
+        # print(f'self.action_space.high: {self.action_space.high}')
 
         action = low_bound + (action + 1.0) * 0.5 * (upper_bound - low_bound)
         action = np.clip(action, low_bound, upper_bound)
@@ -424,47 +461,7 @@ def make_train_env(args=train_env_args):
 
     return env
 
- 
-
-def make_test_env(args=test_env_args):
-
-    seed = np.random.choice(1000, size=1, replace=False)[0]
- 
-    env = make_env(args, seed, False)()
-
-    return env
-
-
-    # test_env = L2M2019Env(
-    #     visualize=False,
-    #     integrator_accuracy=args.accuracy,
-    #     difficulty=args.difficulty,
-    #     seed=seed
-    # )
-    # test_env = NormalizedActions(
-    #     FrameSkipWrapper(
-    #         test_env, args.frame_skip
-    #     )
-    # )
-    # test_env = SkeletonWrapper(
-    #     test_env, False,
-    #     args.frame_skip, 2500,
-    #     10, 1, 1,
-    #     1, 0, 1
-    # )
-
-
-
-
-
-
-
-
-
-
-
-
-
+  
 
 
 

@@ -1,4 +1,5 @@
 
+import numpy as np
 
 class AttrDict(dict):
     def __getattr__(self, key):
@@ -25,7 +26,8 @@ class AttrDict(dict):
 
 observation_shape = [2 * 11 * 11, 97]
 action_shape = 22
-   
+low_bound = np.zeros((action_shape,))
+upper_bound = np.ones((action_shape,))   
 
 
 train_env_args = AttrDict({
@@ -43,16 +45,7 @@ train_env_args = AttrDict({
         })
 
 
-test_env_args = AttrDict({  
-            "difficulty": 3,
-            "accuracy": 1e-4,
-            "frame_skip": 4,
-            "timestep_limit": 2500,
-    
-            'alive_bonus': 1,
-            'death_penalty': 0,
-            'task_bonus': 1,
-        }) 
+
 
  
 
@@ -109,12 +102,12 @@ trainer_args = AttrDict({
 
  
     "log_interval": 1,
-    "save_interval": 50,
+    "save_interval": [1, 50][1],
 
-    "save_dir": "ckpt",
-    "load_ckpt": "ckpt/ckpt-90.h5",
+    "save_dir": "ckpt",    
+    "load_ckpt": ["ckpt/ckpt-90.h5", "ckpt/best.h5"][1],
 
-    "min_experience_len": 50,
+    "min_experience_len": [2, 50][1],
 
 
     "num_epochs": 40,

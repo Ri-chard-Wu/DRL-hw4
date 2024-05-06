@@ -7,11 +7,13 @@ from losses import NStepQValueLossSeparateEntropy
 from models import create_nets
  
 
+import gym
 import tensorflow as tf 
 
-from parameters import observation_shape, action_shape
+from parameters import observation_shape, action_shape, low_bound, upper_bound
 from parameters import sac_args as args
 
+from env_wrappers import obs2vec
 
 import os 
 import pickle
@@ -67,8 +69,9 @@ class SAC:
         self.norm_obs = False
 
  
- 
-
+        self.i = 0
+        self.prev_action = np.zeros((action_shape,)) 
+        self.action_space = gym.spaces.Box(low=0, high=1, shape=(22,), dtype=np.float32)
 
 
     def compute_mask(self, is_done): # is_done: (b, T).
@@ -129,26 +132,36 @@ class SAC:
     
 
 
-    def act_test(self, observation):
 
-        # observation_t = torch.tensor(
-        #     [[observation]],  # add batch and time dimensions
-        #     dtype=torch.float32,
-        #     device=self.device
-        # )
+    def act(self, observation):                
 
-        # (1, 1, obs_dim), obs_dim=339.
-        observation_t = tf.convert_to_tensor(observation[None, None, ...], dtype=tf.float32)
+        if(self.i % 4 == 0):            
+            self.i = 1
 
-        action = self.act(observation_t)
-        action = action[0, 0].cpu().numpy()  # select batch and time
-        return action
+            obs_vec = obs2vec(observation) 
+            obs_vec = tf.convert_to_tensor(obs_vec[None, None, ...], dtype=tf.float32)
+           
+            action = self._act(obs_vec, False)[0, 0].numpy() # (22,)            
+
+            action = low_bound + (action + 1.0) * 0.5 * (upper_bound - low_bound)
+            action = np.clip(action, low_bound, upper_bound)
+            
+            self.prev_action = action
+  
+        else:
+            self.i += 1 
+            
+        return self.prev_action
+
+        # return self.action_space.sample()
 
 
 
-    def act(self, observation_t): # no need grad.
+
+    def _act(self, observation_t, training=True): # no need grad.
         
-        mean, log_std = self.policy_net(observation_t) # (b, T+1, action_dim).
+        mean, log_std = self.policy_net(observation_t, 
+                            training=training) # (b, T+1, action_dim).
         std = tf.math.exp(log_std)
 
         B = mean.shape[0] # b.
@@ -173,7 +186,7 @@ class SAC:
         # observation_t.unsqueeze_(1)
         observation_t = tf.expand_dims(observation_t, axis=1)
 
-        action_t = self.act(observation_t)
+        action_t = self._act(observation_t)
         
         action_t = tf.squeeze(action_t, axis=1)
 
@@ -431,9 +444,7 @@ class SAC:
 
 
 
-    def learn_from_data(self, data, importance_weights=1.0,  # multiply gradients by 1 is always ok
-                        learn_policy=True  # True.
-                        ):
+    def learn_from_data(self, data, importance_weights=1.0):
      
         # obs: (b, T+1, dim). actions, rewards: (b, T, q_dim). is_done: (b, T).  
         obs, actions, rewards, is_done = self.batch_to_tensors(data)

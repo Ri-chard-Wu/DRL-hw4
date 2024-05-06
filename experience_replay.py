@@ -24,6 +24,7 @@ class SegmentTree:
 
         segment_len = train_env_args.segment_len
 
+        # 250000 * (11 * 339 + 10*(22+6+1)) * 4 Bytes
         self._observations = np.zeros((capacity, segment_len + 1, sum(observation_shape)), dtype=np.float32)
         self._actions = np.zeros((capacity, segment_len, action_shape), dtype=np.float32)
         self._rewards = np.zeros((capacity, segment_len, reward_dim), dtype=np.float32)

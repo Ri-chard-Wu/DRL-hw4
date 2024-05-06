@@ -37,9 +37,9 @@ class Layer(tf.keras.Model):
         self.residual = residual and in_features == out_features
 
 
-    def call(self, x_in):
+    def call(self, x_in, training=True):
          
-        x = self.seq(x_in)
+        x = self.seq(x_in, training=training)
  
         if self.residual:
             x = x + x_in
@@ -74,13 +74,13 @@ class PolicyNet(tf.keras.Model):
         self(tf.random.uniform((1, 1, obs_dim + tgt_dim)))
 
 
-    def call(self, x):
+    def call(self, x, training=True):
         
-        x = self.seq(x)
+        x = self.seq(x, training=training)
 
-        mean = self.mean(x)
+        mean = self.mean(x, training=training)
 
-        log_sigma = self.log_sigma(x) 
+        log_sigma = self.log_sigma(x, training=training) 
         log_sigma = tf.clip_by_value(log_sigma, LOG_SIG_MIN, LOG_SIG_MAX)
 
         return mean, log_sigma
@@ -117,7 +117,7 @@ class QValueNet(tf.keras.Model):
         self(tf.random.uniform((1, 1, obs_dim + tgt_dim)), tf.random.uniform((1, 1, action_shape)))
 
 
-    def call(self, obs, act):
+    def call(self, obs, act, training=True):
  
         x = tf.concat([obs, act], axis=-1)
         
@@ -127,9 +127,9 @@ class QValueNet(tf.keras.Model):
         x = tf.reshape(x, [B*T1, -1])        
 
  
-        x = self.seq(x)
+        x = self.seq(x, training=training)
  
-        q = self.q_value(x)
+        q = self.q_value(x, training=training)
  
         return tf.reshape(q, [B, T1, -1])
 
