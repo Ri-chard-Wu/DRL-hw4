@@ -65,7 +65,7 @@ class Trainer:
 
 
     def save_exp_replay(self, epoch):
-        
+
         print('saving exp_replay...')
         # self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
     
@@ -96,36 +96,42 @@ class Trainer:
         # tests only non-shaped reward
         episode_reward = 0.0
         observation, done = self.test_env.reset(), False
-        
-        if args.render:
-            self.test_env.render()
-
+         
         while not done:
             action = self.agent.act_test(observation)
             observation, reward, done, _ = self.test_env.step(action)
-
-            if args.render:
-                self.test_env.render()
-
+ 
             episode_reward += reward 
+
         return episode_reward
 
  
     def test_n(self):
         
-        print('testing agent...')
+        print('evaluating...')
  
-        mean_total_reward = 0.0
+        mean_reward = 0.0
         
         for i in range(args.test_n):
-            episode_reward = self._test_agent()
-            print('episode {} reward: {}'.format(i, episode_reward))
-            mean_total_reward += episode_reward
+ 
+            episode_reward = 0.0
+            observation, done = self.test_env.reset(), False
+            
+            while not done:
+                action = self.agent.act_test(observation)
+                observation, reward, done, _ = self.test_env.step(action)
+    
+                episode_reward += reward             
+            
+
+            print(f'episode {i} reward: {episode_reward}')
+            mean_reward += episode_reward
            
-        mean_total_reward /= args.test_n
+        mean_reward /= args.test_n
+
+        print(f'mean_reward: {mean_reward}')
     
-    
-        return mean_total_reward
+        return mean_reward
 
 
 
@@ -199,6 +205,10 @@ class Trainer:
             if(t%args.save_interval==0):
                 self.agent.save(args.save_dir, f'ckpt-{t}.h5')
 
+                mean_reward = self.test_n()
+                with open("eval.txt", "a") as f: 
+                    f.write(f'[{t}] mean_reward: {mean_reward.round(3)}' + '\n')
+
 
     def train(self):
         '''
@@ -213,8 +223,8 @@ class Trainer:
         self.segment_sampler.sample_first_half_segment()
 
         
-        # for _ in trange(args.min_experience_len): # 100.
-        for _ in trange(50): # 100.
+        for _ in trange(args.min_experience_len):  
+            # for _ in trange(50):  
             self.sample_new_experience() # will push to replay buffer.
 
         # self.save_exp_replay(0)

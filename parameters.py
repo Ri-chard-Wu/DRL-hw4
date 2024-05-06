@@ -109,18 +109,21 @@ trainer_args = AttrDict({
 
  
     "log_interval": 1,
-    "save_interval": 30,
+    "save_interval": 50,
 
     "save_dir": "ckpt",
-    # "load_ckpt": "ckpt/ckpt-5.h5",
+    "load_ckpt": "ckpt/ckpt-90.h5",
+
+    "min_experience_len": 50,
 
 
-    "min_experience_len": 100,
     "num_epochs": 40,
     "epoch_size": 100000000, #500,
     "batch_size": 256,
     "train_steps": 16,
-    "test_n": 3,
+
+    "test_n": 5,
+
     "render": False,
     "segment_file": None,
     "pretrain_critic": False,

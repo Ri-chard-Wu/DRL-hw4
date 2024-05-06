@@ -150,9 +150,9 @@ class SkeletonWrapper(gym.Wrapper):
 
         obs = self.observation_to_numpy(obs) # (339,)
  
-        assert self.env.env.env.env.d_reward['weight']['footstep'] == 10
-        assert self.env.env.env.env.d_reward['weight']['effort'] == 1
-        assert self.env.env.env.env.d_reward['weight']['v_tgt'] == 1
+        # assert self.env.env.env.env.d_reward['weight']['footstep'] == 10
+        # assert self.env.env.env.env.d_reward['weight']['effort'] == 1
+        # assert self.env.env.env.env.d_reward['weight']['v_tgt'] == 1
         
         self.episode_len = 0
 
@@ -430,10 +430,28 @@ def make_test_env(args=test_env_args):
 
     seed = np.random.choice(1000, size=1, replace=False)[0]
  
-    env = make_env(args, seed, False)
+    env = make_env(args, seed, False)()
 
     return env
 
+
+    # test_env = L2M2019Env(
+    #     visualize=False,
+    #     integrator_accuracy=args.accuracy,
+    #     difficulty=args.difficulty,
+    #     seed=seed
+    # )
+    # test_env = NormalizedActions(
+    #     FrameSkipWrapper(
+    #         test_env, args.frame_skip
+    #     )
+    # )
+    # test_env = SkeletonWrapper(
+    #     test_env, False,
+    #     args.frame_skip, 2500,
+    #     10, 1, 1,
+    #     1, 0, 1
+    # )
 
 
 
