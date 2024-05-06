@@ -79,7 +79,7 @@ class SAC:
         
         mask = 1.0 - tf.cast(tf.math.cumsum(is_done[:, :-1], axis=-1) > 0, tf.float32)
         ones = tf.ones((B, 1), dtype=tf.float32)
-        
+
         mask = tf.concat([ones, mask], axis=1)
 
         return mask[:, -self.n_steps:]
@@ -229,6 +229,7 @@ class SAC:
         next_q = next_q[:, 1:]
         next_ent = next_ent[:, 1:]
         
+
         q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
             obs, actions, rewards, is_done, mask, next_q, next_ent)
 
@@ -242,7 +243,9 @@ class SAC:
          
         # action: (n_env, T+1, action_dim).
         action, log_prob = self.sample_action_log_prob(obs)
+         
         next_q_1 = self.target_q_net_1(obs, action) # (n_env, T+1, q_dim+1).
+         
         next_q_2 = self.target_q_net_2(obs, action)
 
 
@@ -260,24 +263,45 @@ class SAC:
         - obs: (n_env, T+1, dim). actions, rewards: (n_env, T, q_dim). is_done: (n_env, T). 
         - mask: (n_env, T).
         ''' 
-        current_q_1 = self.soft_q_net_1(obs[:, :-1], actions) # (n_env, T, q_dim+1).
-        current_q_2 = self.soft_q_net_2(obs[:, :-1], actions) # (n_env, T, q_dim+1).
+        
 
-        # roi
-        # n_steps: 10 == T.
-        current_q_1 = current_q_1[:, -self.n_steps:] # no effect.
-        current_q_2 = current_q_2[:, -self.n_steps:] # no effect.
         next_q = next_q[:, -self.n_steps:] # no effect.
         next_ent = next_ent[:, -self.n_steps:]
         rewards = rewards[:, -self.n_steps:] # no effect.
         is_done = is_done[:, -self.n_steps:] # no effect.
- 
-        q_1_loss = self.q_loss(current_q_1, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
-        q_2_loss = self.q_loss(current_q_2, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
+        
+        target_q_value = self.q_loss.compute_target_q(next_q, next_ent, rewards, is_done, mask)
 
-        q_1_loss = q_1_loss.sum(-1) # (n_env, T). 
-        q_2_loss = q_2_loss.sum(-1) # (n_env, T). 
+
+        current_q_1 = self.soft_q_net_1(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
+        q_1_loss = 0.5 * mask * (self.q_weights * ((current_q_1 - target_q_value) ** 2)) # (b, T, q_dim+1).   
+        q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
+    
+        grads = tape.gradient(q_1_loss, self.soft_q_net_1.trainable_variables)
+        self.q_optim_1.apply_gradients(zip(grads, self.soft_q_net_1.trainable_variables))
+    
+        current_q_2 = self.soft_q_net_2(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
+        q_2_loss = 0.5 * mask * (self.q_weights * ((current_q_2 - target_q_value) ** 2)) # (b, T, q_dim+1).             
+        q_2_loss = tf.reduce_sum(q_2_loss, axis=-1) # (n_env, T).         
+
         return q_1_loss, q_2_loss
+
+        # current_q_1 = self.soft_q_net_1(obs[:, :-1], actions) # (n_env, T, q_dim+1).
+        # current_q_2 = self.soft_q_net_2(obs[:, :-1], actions) # (n_env, T, q_dim+1).
+ 
+        # current_q_1 = current_q_1[:, -self.n_steps:] # no effect.
+        # current_q_2 = current_q_2[:, -self.n_steps:] # no effect.
+        # next_q = next_q[:, -self.n_steps:] # no effect.
+        # next_ent = next_ent[:, -self.n_steps:]
+        # rewards = rewards[:, -self.n_steps:] # no effect.
+        # is_done = is_done[:, -self.n_steps:] # no effect.
+ 
+        # q_1_loss = self.q_loss(current_q_1, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
+        # q_2_loss = self.q_loss(current_q_2, next_q, next_ent, rewards, is_done, mask) # (n_env, T, dim). 
+
+        # q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
+        # q_2_loss = tf.reduce_sum(q_2_loss, axis=-1) # (n_env, T). 
+        # return q_1_loss, q_2_loss
 
 
 
@@ -298,7 +322,7 @@ class SAC:
  
     def learn_q_from_data(self,
                           importance_weights,
-                          observations, actions, rewards, is_done,
+                          obs, actions, rewards, is_done,
                           mask, 
                           segment_length, # (b,)
                           ):
@@ -310,24 +334,37 @@ class SAC:
 
         next_q = next_q[:, 1:]
         next_ent = next_ent[:, 1:]
+ 
+ 
+        next_q = next_q[:, -self.n_steps:] # no effect.
+        next_ent = next_ent[:, -self.n_steps:]
+        rewards = rewards[:, -self.n_steps:] # no effect.
+        is_done = is_done[:, -self.n_steps:] # no effect.
+        
+        target_q_value = self.q_loss.compute_target_q(next_q, next_ent, rewards, is_done, mask)
+
 
         with tf.GradientTape() as tape: 
-            q_1_loss, q_2_loss = self.calc_q_value_loss(observations, actions, \
-                    rewards, is_done, mask, next_q, next_ent) # (n_env, T), (n_env, T). 
-            
+            current_q_1 = self.soft_q_net_1(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
+            q_1_loss = 0.5 * mask * (self.q_weights * ((current_q_1 - target_q_value) ** 2)) # (b, T, q_dim+1).   
+            q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
             q_1_loss = tf.math.reduce_mean((importance_weights * \
                         tf.reduce_sum(q_1_loss, axis=-1) / segment_length)) # (,)
-
-            q_2_loss = tf.math.reduce_mean((importance_weights * \
-                        tf.reduce_sum(q_2_loss, axis=-1) / segment_length)) # (,)            
-
-
         grads = tape.gradient(q_1_loss, self.soft_q_net_1.trainable_variables)
         self.q_optim_1.apply_gradients(zip(grads, self.soft_q_net_1.trainable_variables))
-       
+    
+
+        with tf.GradientTape() as tape: 
+            current_q_2 = self.soft_q_net_2(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
+            q_2_loss = 0.5 * mask * (self.q_weights * ((current_q_2 - target_q_value) ** 2)) # (b, T, q_dim+1).             
+            q_2_loss = tf.reduce_sum(q_2_loss, axis=-1) # (n_env, T).         
+            q_2_loss = tf.math.reduce_mean((importance_weights * \
+                        tf.reduce_sum(q_2_loss, axis=-1) / segment_length)) # (,)            
         grads = tape.gradient(q_2_loss, self.soft_q_net_2.trainable_variables)
         self.q_optim_2.apply_gradients(zip(grads, self.soft_q_net_2.trainable_variables))
  
+
+
         priority = self.calculate_priority(q_1_loss, q_2_loss, segment_length) # (n_env,).
 
         return q_1_loss.numpy(), q_2_loss.numpy(), priority

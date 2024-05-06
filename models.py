@@ -39,12 +39,55 @@ class Layer(tf.keras.Model):
 
     def call(self, x_in):
         
+        # print(f'#1 x_in.shape: {x_in.shape}')
+
         x = self.seq(x_in)
 
+        # print(f'#2 x.shape: {x.shape}')
+        # print('###############')
         if self.residual:
             x = x + x_in
 
         return x
+
+
+
+
+# class Layer1(tf.keras.Model):
+
+#     def __init__(self, in_features, out_features, layer_norm, afn, residual=True, drop=0.0):        
+#         super().__init__()
+ 
+#         seq = []
+
+#         seq.append(tf.keras.layers.Dense(out_features))
+        
+#         # if layer_norm:
+#         #     seq.append(tf.keras.layers.LayerNormalization(epsilon=1e-5))
+
+#         # if afn is not None:
+#         #     seq.append(afns[afn]())
+ 
+#         # if drop != 0.0:
+#         #     seq.append(tf.keras.layers.Dropout(drop))
+
+#         self.seq = tf.keras.Sequential(seq)
+
+#         # self.residual = residual and in_features == out_features
+
+
+#     def call(self, x_in):
+        
+#         print(f'#1 x_in.shape: {x_in.shape}')
+
+#         x = self.seq(x_in)
+
+#         print(f'#2 x.shape: {x.shape}')
+#         print('###############')
+#         # if self.residual:
+#         #     x = x + x_in
+
+#         return x
 
 
 
@@ -108,16 +151,52 @@ class QValueNet(tf.keras.Model):
             Layer(h, h, ln, afn, res, drop),
         ])
 
+
+        # self.f1 = Layer(obs_dim + tgt_dim + action_shape, h, ln, afn, res, drop)
+        # self.f2 = Layer(h, h, ln, afn, res, drop)
+        # self.f3 = Layer(h, h, ln, afn, res, drop)
+
         self.q_value = Layer(h, q_dim, False, None)
      
-        self(tf.random.uniform((1, obs_dim + tgt_dim)), tf.random.uniform((1, action_shape)))
+        self(tf.random.uniform((1, 1, obs_dim + tgt_dim)), tf.random.uniform((1, 1, action_shape)))
 
 
     def call(self, obs, act):
+        # print(f'# type(obs), {type(obs)}, type(act), {type(act)}')
+        # exit()
+
         
+
         x = tf.concat([obs, act], axis=-1)
+        
+
+        B, T1, _ = x.shape
+
+        x = tf.reshape(x, [B*T1, -1])        
+
+
+        # print(f'#### q x.shape: {x.shape}')
+        
         x = self.seq(x)
-        return self.q_value(x)
+
+
+        # print(f'### a')
+        # x = self.f1(x)
+
+        # print(f'### b')
+
+
+        # x = self.f2(x)
+
+        # print(f'### c')
+
+
+        # x = self.f3(x)
+
+        # print(f'### d')
+        q = self.q_value(x)
+ 
+        return tf.reshape(q, [B, T1, -1])
 
 
 
