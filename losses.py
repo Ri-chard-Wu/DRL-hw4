@@ -1,6 +1,7 @@
  
 import tensorflow as tf 
 
+import numpy as np
  
 
 
@@ -56,10 +57,11 @@ class NStepQValueLossSeparateEntropy():
 
         self.n_steps = n_steps # 5.
 
-        self.gamma_t = tf.Variable(initial_value=[[gamma**i] for i in range(n_steps + 1)],
-                                    trainable=False, dtype=tf.float32) # (n_steps + 1, 1)
+        # self.gamma_t = tf.Variable(initial_value=[[gamma**i] for i in range(n_steps + 1)],
+        #                             trainable=False, dtype=tf.float32) # (n_steps + 1, 1)
 
     
+        self.gamma_t = np.array([[gamma**i] for i in range(n_steps + 1)], dtype=np.float32)
 
     def compute_target_q(self,                 
                 next_q, # (b, T, q_dim+1). 
@@ -113,14 +115,16 @@ class NStepQValueLossSeparateEntropy():
             # need to remove last dim of gamma_t for log_p_sum calculation
             log_p_to_sum = (log_p_pad[:, t:t + self.n_steps] * self.gamma_t[1:, 0])  # (b,)
             
-            next_q = (self.gamma ** idx) * next_q[:, idx] # (b, q_dim+1). 
+            next_q_t = (self.gamma ** idx) * next_q[:, idx] # (b, q_dim+1). 
  
             # n-step return.
             # target_q_value[:, t, :-1] = tf.reduce_sum(reward_to_sum, axis=1) # (b, q_dim)  
             target_q_value[:, t, :-1] = np.sum(reward_to_sum, axis=1)
 
-            target_q_value[:, t, -1] = log_p_to_sum
-            target_q_value[:, t] = target_q_value[:, t] + next_q  # (b, q_dim+1). 
+            target_q_value[:, t, -1] = np.sum(log_p_to_sum, axis=1)
+
+            # print(f'target_q_value[:, t].shape: {target_q_value[:, t].shape}, next_q.shape: {next_q.shape}')
+            target_q_value[:, t] = target_q_value[:, t] + next_q_t  # (b, q_dim+1). 
 
 
         target_q_value = rescaling_fn(target_q_value) # (b, T, q_dim+1)

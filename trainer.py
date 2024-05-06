@@ -124,8 +124,7 @@ class Trainer:
         
     def _train_epoch(self, epoch, importance_delta, priority_delta, learn_policy=True):        
 
-        self.agent.train()
-
+      
         for _ in trange(args.epoch_size, desc=f'epoch_{epoch}'): 
  
             self.sample_new_experience() # will push to replay buffer.

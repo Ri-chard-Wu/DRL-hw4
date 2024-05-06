@@ -193,6 +193,8 @@ class SAC:
         q_loss = tf.math.sqrt(2.0 * tf.math.maximum(q_1_loss, q_2_loss)) # (n_env, T).
 
         # max_over_time = torch.max(q_loss, dim=1)[0] # (,)?! "[0]" should be removed?
+
+        # print(f'\n\n\n###### q_loss.shape: {q_loss.shape}\n\n\n')
         max_over_time = tf.math.reduce_max(q_loss, axis=1)[0]
  
         mean_over_time = tf.reduce_sum(q_loss, axis=1) / segment_length # (n_env,).
@@ -272,13 +274,12 @@ class SAC:
         
         target_q_value = self.q_loss.compute_target_q(next_q, next_ent, rewards, is_done, mask)
 
+        mask = tf.expand_dims(mask, axis=-1)
 
         current_q_1 = self.soft_q_net_1(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
         q_1_loss = 0.5 * mask * (self.q_weights * ((current_q_1 - target_q_value) ** 2)) # (b, T, q_dim+1).   
         q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
     
-        grads = tape.gradient(q_1_loss, self.soft_q_net_1.trainable_variables)
-        self.q_optim_1.apply_gradients(zip(grads, self.soft_q_net_1.trainable_variables))
     
         current_q_2 = self.soft_q_net_2(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
         q_2_loss = 0.5 * mask * (self.q_weights * ((current_q_2 - target_q_value) ** 2)) # (b, T, q_dim+1).             
@@ -344,13 +345,17 @@ class SAC:
         target_q_value = self.q_loss.compute_target_q(next_q, next_ent, rewards, is_done, mask)
 
 
+        mask = tf.expand_dims(mask, axis=-1)
+
+
         with tf.GradientTape() as tape: 
             current_q_1 = self.soft_q_net_1(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
             q_1_loss = 0.5 * mask * (self.q_weights * ((current_q_1 - target_q_value) ** 2)) # (b, T, q_dim+1).   
             q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
-            q_1_loss = tf.math.reduce_mean((importance_weights * \
+
+            q_1_loss_red = tf.math.reduce_mean((importance_weights * \
                         tf.reduce_sum(q_1_loss, axis=-1) / segment_length)) # (,)
-        grads = tape.gradient(q_1_loss, self.soft_q_net_1.trainable_variables)
+        grads = tape.gradient(q_1_loss_red, self.soft_q_net_1.trainable_variables)
         self.q_optim_1.apply_gradients(zip(grads, self.soft_q_net_1.trainable_variables))
     
 
@@ -358,16 +363,16 @@ class SAC:
             current_q_2 = self.soft_q_net_2(obs[:, :-1], actions)[:, -self.n_steps:] # (n_env, T, q_dim+1).            
             q_2_loss = 0.5 * mask * (self.q_weights * ((current_q_2 - target_q_value) ** 2)) # (b, T, q_dim+1).             
             q_2_loss = tf.reduce_sum(q_2_loss, axis=-1) # (n_env, T).         
-            q_2_loss = tf.math.reduce_mean((importance_weights * \
+            q_2_loss_red = tf.math.reduce_mean((importance_weights * \
                         tf.reduce_sum(q_2_loss, axis=-1) / segment_length)) # (,)            
-        grads = tape.gradient(q_2_loss, self.soft_q_net_2.trainable_variables)
+        grads = tape.gradient(q_2_loss_red, self.soft_q_net_2.trainable_variables)
         self.q_optim_2.apply_gradients(zip(grads, self.soft_q_net_2.trainable_variables))
  
 
 
         priority = self.calculate_priority(q_1_loss, q_2_loss, segment_length) # (n_env,).
 
-        return q_1_loss.numpy(), q_2_loss.numpy(), priority
+        return q_1_loss_red.numpy(), q_2_loss_red.numpy(), priority
 
  
 
@@ -386,7 +391,7 @@ class SAC:
 
             q_min, log_prob = self.pred_next_q(obs) # (b, T+1, q_dim+1), (b, T+1).
     
-            target_log_prob = tf.reduce_sum(self.q_weights * next_q, axis=-1) # (b, T+1).
+            target_log_prob = tf.reduce_sum(self.q_weights * q_min, axis=-1) # (b, T+1).
 
             log_prob = log_prob[:, -self.n_steps:] # (b, T).
             target_log_prob = target_log_prob[:, -self.n_steps:] # (b, T).
@@ -413,7 +418,7 @@ class SAC:
                         tf.reduce_sum(alpha_loss, axis=-1) / segment_length)) # (,)
                      
         grads = tape.gradient(alpha_loss, self.sac_log_alpha) 
-        self.alpha_optim.apply_gradients(zip(grads, self.sac_log_alpha))
+        self.alpha_optim.apply_gradients(zip([grads], [self.sac_log_alpha]))
        
         self.sac_alpha = tf.math.exp(self.sac_log_alpha).numpy()
 
@@ -433,7 +438,8 @@ class SAC:
 
         # adding 1 to segment_len everywhere is normal, because this will remove division by zero,
             # and the gradients at each time step will change equally
-        segment_length = mask.sum(-1) + 1 # (b,)
+        segment_length = tf.reduce_sum(mask, axis=-1) + 1 # (b,)
+        
         importance_weights = tf.convert_to_tensor(importance_weights, dtype=tf.float32)
   
         q_1_loss, q_2_loss, priority = self.learn_q_from_data(importance_weights,\
