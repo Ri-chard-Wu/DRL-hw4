@@ -26,60 +26,29 @@ class Trainer:
         self.importance_exponent = args.start_importance_exponent
         self.end_importance_exponent = args.end_importance_exponent
 
-        self.best_reward = -float('inf')
-        self.collected_experience = 0
-        self.exp_replay_save_frequency = train_env_args.env_num * self.experience_replay.capacity // 2
 
+ 
 
+    # def save_exp_replay(self, epoch):
+    #     print('saving exp_replay...')
 
+    #     self.experience_replay
+       
 
+    # def load_exp_replay(self, filename):
 
-    @staticmethod
-    def load_experience_replay_from_h5(er, filename):
-        # update experience replay in-place
-        f = h5py.File(filename, mode='r')
-        data_group = f['experience_replay']
-        for key in er.tree.__dict__:
-            loaded_value = data_group[key][()]
-            er.tree.__dict__.update({key: loaded_value})
-        f.close()
-        return er
+    #     print('loading exp replay...')
+    #     filename = str(filename)
 
-    @staticmethod
-    def save_experience_replay_as_h5(er, filename):
-        f = h5py.File(filename, mode='w')
-        data_group = f.create_group('experience_replay')
-        data_group.create_dataset('capacity', data=er.capacity)
-        for k, v in er.tree.__dict__.items():
-            
-            if hasattr(v, '__len__'):
-                data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
-            else:
-                data_group.create_dataset(k, data=v)  # can't compress scalars
-        f.close()
-        return
+    #     if filename.endswith('.pickle'):
 
+    #         with open(filename, 'rb') as f:
+    #             self.experience_replay = pickle.load(f)
 
-
-    def save_exp_replay(self, epoch):
-        print('saving exp_replay...')
-        # self.save_experience_replay_as_h5(self.experience_replay, self.logdir + 'exp_replay_{}.h5'.format(epoch))
-    
-
-    def load_exp_replay(self, filename):
-
-        print('loading exp replay...')
-        filename = str(filename)
-
-        if filename.endswith('.pickle'):
-
-            with open(filename, 'rb') as f:
-                self.experience_replay = pickle.load(f)
-
-        elif filename.endswith('.h5'):
-            self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
-        else:
-            raise ValueError("don't know ho to parse this type of file")
+    #     elif filename.endswith('.h5'):
+    #         self.experience_replay = self.load_experience_replay_from_h5(self.experience_replay, filename)
+    #     else:
+    #         raise ValueError("don't know ho to parse this type of file")
 
 
 
@@ -129,9 +98,6 @@ class Trainer:
 
         self.experience_replay.push(new_segment, priority, self.priority_exponent)
 
-        self.collected_experience += 1
-
-
 
 
     def _train_step(self, batch_size,
@@ -175,34 +141,6 @@ class Trainer:
 
 
 
-
-
-# trainer_args = AttrDict({
-
-#     "start_priority_exponent": 0.2,
-#     "end_priority_exponent": 0.9,
-
-#     "start_importance_exponent": 0.2,
-#     "end_importance_exponent": 0.9,
-    
-#     "prioritization_steps": 3000,
-#     "exp_replay_checkpoint": None,
-
-#     # "agent_checkpoint": "logs/learning_to_move/8c/epoch_0.pth",
-#     # "load_full": "True"
- 
-#     "min_experience_len": 100,
-#     "num_epochs": 40,
-#     "epoch_size": 500,
-#     "batch_size": 256,
-#     "train_steps": 16,
-#     "test_n": 3,
-#     "render": False,
-#     "segment_file": None,
-#     "pretrain_critic": False,
-#     "num_pretrain_epoch": 0  
-# })
-   
     def train(self):
         '''
         batch size here is the number of segments to sample from experience replay
@@ -213,18 +151,14 @@ class Trainer:
         priority_delta = (self.end_priority_exponent - self.priority_exponent) / args.prioritization_steps
         importance_delta = (self.end_importance_exponent - self.importance_exponent) / args.prioritization_steps
 
-        self.agent.train() # not train, but set to train mode.
-
         self.segment_sampler.sample_first_half_segment()
 
         
-
         for _ in trange(args.min_experience_len): # 100.
             self.sample_new_experience() # will push to replay buffer.
 
-        self.save_exp_replay(0)
-
-
+        # self.save_exp_replay(0)
+ 
 
         for epoch in range(args.num_epochs):
 
@@ -232,8 +166,8 @@ class Trainer:
 
             self.save_exp_replay(epoch + 1)  
 
-            # TODO: save model.
+            # TODO: save model & relay buffer and do eval.
 
-            test_reward = self.test_n()
+            # test_reward = self.test_n()
 
             

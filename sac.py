@@ -321,7 +321,7 @@ class SAC:
  
         priority = self.calculate_priority(q_1_loss, q_2_loss, segment_length) # (n_env,).
 
-        return q_1_loss, q_2_loss, priority
+        return q_1_loss.numpy(), q_2_loss.numpy(), priority
 
  
 
@@ -371,7 +371,7 @@ class SAC:
        
         self.sac_alpha = tf.math.exp(self.sac_log_alpha).numpy()
 
-        return policy_loss, alpha_loss, mean_q_min.numpy() # (,), (,), (q_dim,)
+        return policy_loss.numpy(), alpha_loss.numpy(), mean_q_min.numpy() # (,), (,), (q_dim,)
 
 
 
@@ -380,45 +380,33 @@ class SAC:
                         learn_policy=True  # True.
                         ):
      
-        # observations: (b, T+1, dim). actions, rewards: (b, T, dim). is_done: (b, T).  
-        observations, actions, rewards, is_done = self.batch_to_tensors(data)
+        # obs: (b, T+1, dim). actions, rewards: (b, T, q_dim). is_done: (b, T).  
+        obs, actions, rewards, is_done = self.batch_to_tensors(data)
         mask = self.compute_mask(is_done) # (b, T=10)
 
 
-        # добавить везде единицу в segment_len - нормально,
-        # потому что это уберет деление на ноль,
-        # а градииенты на каждом шаге по времени изменятся одинаково
+        # adding 1 to segment_len everywhere is normal, because this will remove division by zero,
+            # and the gradients at each time step will change equally
         segment_length = mask.sum(-1) + 1 # (b,)
-        importance_weights = torch.tensor(
-            importance_weights, dtype=torch.float32, device=self.device
-        )
- 
-
-        # q_1_loss, q_2_loss: (,). priority: (b,).
-        q_1_loss, q_2_loss, priority = self.learn_q_from_data(
-            importance_weights,
-            observations, actions, rewards, is_done,
-            mask, segment_length
-        )
+        importance_weights = tf.convert_to_tensor(importance_weights, dtype=tf.float32)
+  
+        q_1_loss, q_2_loss, priority = self.learn_q_from_data(importance_weights,\
+                     obs, actions, rewards, is_done, mask, segment_length) # (,), (,), (b,).
+        
         self.soft_target_update()
 
         
         policy_loss, alpha_loss, q_min = self.learn_p_from_data(importance_weights, 
-                                    observations, mask, segment_length) # (,), (q_dim,).
-   
+                                    obs, mask, segment_length) # (,), (,), (q_dim,).
    
         q_dim = rewards.shape[-1]
-        mean_batch_reward = (self.q_weights[:,:,:q_dim] * rewards[:, -self.n_steps:, :]).sum(-1)  # (b, T)
-        mean_batch_reward = (mask * mean_batch_reward).sum(-1)  # (b,)
-        mean_batch_reward = (mean_batch_reward / segment_length).mean().item() # (,)
+        mean_batch_reward = tf.reduce_sum(self.q_weights[:,:,:q_dim] * \
+                                        rewards[:, -self.n_steps:, :], axis=-1)  # (b, T)
 
-        losses = np.array(
-            [
-                policy_loss, alpha_loss, # (,), (,)
-                q_1_loss, q_2_loss, # (,), (,)
-                mean_batch_reward # (,)
-            ]
-        ) # (5,)
+        mean_batch_reward = tf.math.reduce_mean(tf.reduce_sum(mask \
+                            * mean_batch_reward, axis=-1) / segment_length).numpy() # (,)
+
+        losses = np.array([policy_loss, alpha_loss, q_1_loss, q_2_loss, mean_batch_reward]) # (5,)
  
         return losses, q_min, priority # (5,), (q_dim,), (b,)
 

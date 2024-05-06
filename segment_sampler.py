@@ -1,7 +1,5 @@
-import numpy as np 
-
- 
-import tensorflow as tf
+import numpy as np  
+  
 from parameters import train_env_args
 from parameters import sac_args
 
@@ -60,12 +58,8 @@ class SegmentSampler:
             is_done.append(done)
 
             if np.any(done):
- 
-         
                 self.reward *= (1.0 - done)
                 self.episode_length *= (1.0 - done)
-
-  
 
         segment = (np.array(observations), np.array(actions), np.array(rewards), np.array(is_done))
       
