@@ -7,6 +7,9 @@ from sac import SAC
 
 import h5py
 
+import tensorflow.keras.backend as K
+import tensorflow as tf
+
 import gym
 from osim.env import L2M2019Env
 
@@ -106,17 +109,19 @@ class Trainer:
             start_time = time.time()
             episode_reward = 0
             
+            t = 0
             while True:
                 action = agent.act(obs) 
 
                 obs, reward, done, info = env.step(action)
+                t += 1
                 episode_reward += reward
 
                 if time.time() - start_time > time_limit:
                     print(f"Time limit reached for episode {episode}")
                     break
 
-                if done:
+                if done or t >= env.spec.timestep_limit-1:
                     break
  
             total_reward += episode_reward
@@ -125,7 +130,7 @@ class Trainer:
 
         env.close()
 
-        score = total_reward / 50
+        score = total_reward / 10
         print(f"Final Score: {score}")
 
         return score
@@ -153,6 +158,8 @@ class Trainer:
         losses, q_min, upd_priority = self.agent.learn_from_data(\
                         segment, importance_weights) # (5,), (q_dim,), (b,)
 
+        K.clear_session()
+        tf.keras.backend.clear_session() 
 
         self.experience_replay.update_priorities(exp_ids, upd_priority, self.priority_exponent)
 
@@ -210,10 +217,11 @@ class Trainer:
 
                 self.agent.save(args.save_dir, f'ckpt-{t}.h5')
 
+            
                 mean_reward = self.eval(args.save_dir, f'ckpt-{t}.h5')
-
                 with open("eval.txt", "a") as f: 
                     f.write(f'[{t}] mean_reward: {round(mean_reward, 3)}' + '\n')
+             
 
 
 

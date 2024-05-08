@@ -91,10 +91,10 @@ sac_args = AttrDict({
 
 trainer_args = AttrDict({
 
-    "start_priority_exponent": 0.2,
+    "start_priority_exponent": [0.2, 0.89][1],
     "end_priority_exponent": 0.9,
 
-    "start_importance_exponent": 0.2,
+    "start_importance_exponent": [0.2, 0.89][1],
     "end_importance_exponent": 0.9,
     
     "prioritization_steps": 3000,
@@ -106,10 +106,10 @@ trainer_args = AttrDict({
     "save_exp_interval": [1, 500][1],
 
     "save_dir": "ckpt",    
-    "load_ckpt": ["ckpt/ckpt-90.h5", "ckpt/best.h5"][1],
+    "load_ckpt": ["ckpt/ckpt-300.h5", "ckpt/best.h5"][0],
     "load_exp": "ckpt/exp.h5",
 
-    "min_experience_len": [2, 50][1],
+    "min_experience_len": [0, 2, 50][0],
     
     "epoch_size": 100000000, #500,
     "batch_size": 256,

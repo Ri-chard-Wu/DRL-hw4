@@ -141,7 +141,9 @@ class SAC:
             obs_vec = obs2vec(observation) 
             obs_vec = tf.convert_to_tensor(obs_vec[None, None, ...], dtype=tf.float32)
            
-            action = self._act(obs_vec, False)[0, 0].numpy() # (22,)            
+            # action = self._act(obs_vec, False)[0, 0].numpy() # (22,)            
+            mean, _ = self.policy_net(obs_vec, training=False) # (b, T+1, action_dim).
+            action = tf.math.tanh(mean)[0, 0].numpy()            
 
             action = low_bound + (action + 1.0) * 0.5 * (upper_bound - low_bound)
             action = np.clip(action, low_bound, upper_bound)
@@ -494,7 +496,8 @@ class SAC:
         state_dict['soft_q_net_2'] = self.soft_q_net_2.get_weights()
         state_dict['target_q_net_1'] = self.target_q_net_1.get_weights()
         state_dict['target_q_net_2'] = self.target_q_net_2.get_weights()
- 
+        state_dict['sac_log_alpha'] = self.sac_log_alpha
+        
  
         with open(path, 'wb') as f:
             pickle.dump(state_dict, f)             
@@ -513,6 +516,7 @@ class SAC:
         self.soft_q_net_1.set_weights(state_dict['soft_q_net_1'])
         self.soft_q_net_2.set_weights(state_dict['soft_q_net_2'])
         self.target_q_net_1.set_weights(state_dict['target_q_net_1'])
-        self.target_q_net_2.set_weights(state_dict['target_q_net_2'])
-           
+        self.target_q_net_2.set_weights(state_dict['target_q_net_2'])        
+        self.sac_log_alpha = state_dict['sac_log_alpha']
+       
         print(f'loaded ckpt: {path}')
