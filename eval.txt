@@ -289,3 +289,7 @@
 [3900] mean_reward: 75.99
 [4000] mean_reward: 88.7
 [4100] mean_reward: 129.494
+[0] mean_reward: 11.33
+[200] mean_reward: 12.221
+[400] mean_reward: 20.882
+[600] mean_reward: 18.97

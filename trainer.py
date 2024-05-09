@@ -149,13 +149,13 @@ class Trainer:
 
 
 
-    def _train_step(self, batch_size):
+    def train_step(self):
 
 
         segment, exp_ids, importance_weights = \
-                        self.experience_replay.sample(batch_size, self.importance_exponent)
+                        self.experience_replay.sample(args.batch_size, self.importance_exponent)
 
-        losses, q_min, upd_priority = self.agent.learn_from_data(\
+        losses, q_min, upd_priority = self.agent.train_step(\
                         segment, importance_weights) # (5,), (q_dim,), (b,)
 
         K.clear_session()
@@ -178,25 +178,29 @@ class Trainer:
         # priority_exponent: 0.2.
         priority_delta = (self.end_priority_exponent - self.priority_exponent) / args.prioritization_steps
         importance_delta = (self.end_importance_exponent - self.importance_exponent) / args.prioritization_steps
-
-        self.segment_sampler.sample_first_half_segment()
-
+ 
         
-        for _ in trange(args.min_experience_len):  
-            # for _ in trange(50):  
+        for _ in trange(args.min_experience_len):             
             self.sample_new_experience() # will push to replay buffer.
 
-        # self.save_exp_replay(0)
- 
-
-     
+   
         for t in range(args.epoch_size): 
  
             self.sample_new_experience() # will push to replay buffer.
 
-            for train_step in range(args.train_steps):
-                losses, _ = self._train_step(args.batch_size) # (5,), (q_dim,)
-        
+            for _ in range(args.train_steps):
+
+                segment, exp_ids, importance_weights = \
+                                self.experience_replay.sample(args.batch_size, self.importance_exponent)
+
+                losses, upd_priority = self.agent.train_step(segment, importance_weights) # (4,), (b,)
+
+                K.clear_session()
+                tf.keras.backend.clear_session() 
+
+                self.experience_replay.update_priorities(exp_ids, upd_priority, self.priority_exponent)
+
+ 
 
             self.importance_exponent += importance_delta
             self.importance_exponent = min(self.end_importance_exponent, self.importance_exponent)
@@ -225,5 +229,5 @@ class Trainer:
 
 
 
-            if(t%args.save_exp_interval==0):
-                self.save_exp_replay(args.save_dir, 'exp.h5')
+            # if(t%args.save_exp_interval==0):
+            #     self.save_exp_replay(args.save_dir, 'exp.h5')

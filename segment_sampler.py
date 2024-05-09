@@ -1,116 +1,65 @@
 import numpy as np  
   
 from parameters import train_env_args
-from parameters import sac_args
+from env_wrappers import make_train_env
+
+
 
 
 class SegmentSampler:
-    def __init__(self, agent, environment):
+    
+    def __init__(self, agent):
 
         self.agent = agent
-        self.environment = environment # L2M env + some wrappers.
-        self.segment_len = train_env_args.segment_len # 10.
-        self.q_weights = np.array([sac_args.q_weights], dtype=float)
-         
-
-        observation = self.environment.reset()
-        batch_size = observation.shape[0]
-        self.reward = np.zeros(batch_size, dtype=float)
-        self.episode_length = np.zeros(batch_size, dtype=float)
-
-        self.previous_half_segment = None
-        self.current_observation = observation
-    
-
-
-
-    def sample_first_half_segment(self):
-
-        segment, observation = self._sample_half_segment(self.current_observation)
-
-       
-        self.previous_half_segment = segment
-
-        self.current_observation = observation
   
+        self.env = make_train_env() 
+        obs = self.env.reset()
+        
+        self.cur_half_seg, self.cur_obs = self.sample_half_segment(obs)       
 
 
-    def _sample_half_segment(self, observation):
+    def sample_half_segment(self, obs):
  
-        observations = []
-        actions = []
-        rewards = []
-        is_done = []
+        obs_seg = []
+        act_seg = []
+        rew_seg = []
+        don_seg = []
 
-        for step in range(self.segment_len // 2): # 10 // 2 == 5.
+        for _ in range(train_env_args.segment_len // 2): # 10 // 2 == 5.
 
-            observations.append(observation)
+            obs_seg.append(obs)
  
-            action, reward, observation, done = self._step(observation)
+            act = np.squeeze(self.agent.act_sampler(obs[:,None,:]), axis=1)                
+            obs, rew, don, _ = self.env.step(act)
+                    
+            act_seg.append(act)
+            rew_seg.append(rew) # (n_env, 6). 
+            don_seg.append(don)
+         
+        orders = [(1, 0, 2), (1, 0, 2), (1, 0, 2), (1, 0)]
 
-          
-            # self.q_weights: np.array([2.0, 1.0, 1.0, 1.0, 1.0, 1.0]).
-            # reward: (n_env, 6).
-            self.reward += (self.q_weights * reward).sum(axis=-1)  # (n_env,)
-            self.episode_length += (1.0 - done)  # increase episode len only for alive environments
-            actions.append(action)
-            rewards.append(reward)
-            is_done.append(done)
+        seg = map(np.array, (obs_seg, act_seg, rew_seg, don_seg))        
+        seg = [s.transpose(order) for s, order in zip(seg, orders)]
 
-            if np.any(done):
-                self.reward *= (1.0 - done)
-                self.episode_length *= (1.0 - done)
-
-        segment = (np.array(observations), np.array(actions), np.array(rewards), np.array(is_done))
-      
-        return segment, observation 
+        return seg, obs 
 
 
-
-    def _step(self, observation):
-
-      
-        action = self.agent.act_q(observation)
- 
-        new_observation, reward, done, _ = self.environment.step(action)
-      
-        return action, reward, new_observation, done
-
-
-
-    def _concatenate_segments(self, segment):
-        # (observation, action, reward) - vectors, (done) - scalar
-        shapes = [(1, 0, 2), (1, 0, 2), (1, 0, 2), (1, 0)]
-
-        segment = [
-            np.concatenate((a, b)).transpose(c) # observation, action, reward: (n_env, T, dim), done: (n_env, T).
-            for a, b, c in zip(self.previous_half_segment, segment, shapes)
-        ]
-        return segment
-
- 
 
 
     def sample(self):
  
 
-        half_segment, new_observation = self._sample_half_segment(self.current_observation)
- 
+        next_half_seg, new_observation = self.sample_half_segment(self.cur_obs)
   
         # obs, act, rew: (n_env, T, dim), don: (n_env, T). T==10.
-        segment = self._concatenate_segments(half_segment) 
-
-
+        segment = np.concatenate((self.cur_half_seg, next_half_seg), axis=1)
         segment[0] = np.concatenate((segment[0], new_observation[:, None, :]), 1) # (n_env, T+1, dim)
 
         # segment - obs: (n_env, T+1, dim). act, rew: (n_env, T, dim). don: (n_env, T). T==10.
         priority_loss = self.agent.calculate_priority_loss(segment) # (n_env,).
  
      
-        self.previous_half_segment = half_segment
-        self.current_observation = new_observation
+        self.cur_half_seg = next_half_seg
+        self.cur_obs = new_observation
 
-
-        # segment - obs: (n_env, T+1, dim), act, rew: (n_env, T, dim), don: (n_env, T). T==10.
-        # priority_loss: (n_env,)
         return segment, priority_loss  
