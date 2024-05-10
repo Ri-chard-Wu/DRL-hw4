@@ -64,52 +64,6 @@ class SAC:
 
 
 
-    # def compute_target_q(self,                 
-    #             next_q_ent, # (b, T=10, q_dim+1). 
-    #             ent, # (b, T). 
-    #             reward,  # (b, T, q_dim). 
-    #             is_done, # (b, T). 
-    #             mask # (b, T).
-    #         ):
- 
-    #     mask = mask.numpy()[:,:,None]
-    #     next_q_ent = next_q_ent.numpy() 
-    #     ent = ent.numpy() 
-    #     reward = reward.numpy() * mask
-    #     is_done = is_done.numpy()[:,:,None]
-        
-
-    #     B, T, q_dim = reward.shape # shape == (b, 10, q_dim)
-
-      
-    #     next_q_ent = mask * (1.0 - is_done) * inv_rescaling_fn(next_q_ent) # (b, T, q_dim+1). 
-
-    #     next_q = next_q_ent[:,:,:-1] # (b, T, q_dim)
-    #     next_ent = next_q_ent[:,:,-1] # (b, T)
-
-
-    #     target_q_value = np.zeros([B, T, q_dim + 1], dtype=np.float32)
-
-  
-    #     for t1 in range(T): # T: 10.
-            
-    #         tn = min(T - 1, t1 + args.n_step_loss - 1) # args.n_step_loss: 5. 
-    #         n = tn - t1 + 1
-
-    #         # n-step return.               
-    #         reward_sum = np.sum(reward[:, t1:t1+n, :] * self.gammas[:n], axis=1) # (b, q_dim) 
-    #         target_q_value[:, t1, :-1] = reward_sum + (self.gammas[1]**tn) * next_q[:, t1+n-1] # (b, q_dim). 
-
-    #         ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[1:n+1, 0], axis=1)  # (b,)                    
-    #         target_q_value[:, t1, -1] = ent_sum + (self.gammas[1]**tn) * next_ent[:, t1+n-1] # (b,).             
-
- 
-    #     target_q_value = rescaling_fn(target_q_value) # (b, T, q_dim+1)
-
-    #     return tf.convert_to_tensor(target_q_value, dtype=tf.float32)
-
-
-
     def compute_target_q(self,                 
                 next_q_ent, # (b, T=10, q_dim+1). 
                 ent, # (b, T). 
@@ -144,15 +98,61 @@ class SAC:
 
             # n-step return.               
             reward_sum = np.sum(reward[:, t1:t1+n, :] * self.gammas[:n], axis=1) # (b, q_dim) 
-            target_q_value[:, t1, :-1] = reward_sum + self.gammas[n] * next_q[:, t1+n-1] # (b, q_dim). 
+            target_q_value[:, t1, :-1] = reward_sum + (self.gammas[1]**tn) * next_q[:, t1+n-1] # (b, q_dim). 
 
-            ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[:n, 0], axis=1)  # (b,)                    
-            target_q_value[:, t1, -1] = ent_sum + self.gammas[n] * next_ent[:, t1+n-1] # (b,).             
+            ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[1:n+1, 0], axis=1)  # (b,)                    
+            target_q_value[:, t1, -1] = ent_sum + (self.gammas[1]**tn) * next_ent[:, t1+n-1] # (b,).             
 
  
         target_q_value = rescaling_fn(target_q_value) # (b, T, q_dim+1)
 
         return tf.convert_to_tensor(target_q_value, dtype=tf.float32)
+
+
+
+    # def compute_target_q(self,                 
+    #             next_q_ent, # (b, T=10, q_dim+1). 
+    #             ent, # (b, T). 
+    #             reward,  # (b, T, q_dim). 
+    #             is_done, # (b, T). 
+    #             mask # (b, T).
+    #         ):
+ 
+    #     mask = mask.numpy()[:,:,None]
+    #     next_q_ent = next_q_ent.numpy() 
+    #     ent = ent.numpy() 
+    #     reward = reward.numpy() * mask
+    #     is_done = is_done.numpy()[:,:,None]
+        
+
+    #     B, T, q_dim = reward.shape # shape == (b, 10, q_dim)
+
+      
+    #     next_q_ent = mask * (1.0 - is_done) * inv_rescaling_fn(next_q_ent) # (b, T, q_dim+1). 
+
+    #     next_q = next_q_ent[:,:,:-1] # (b, T, q_dim)
+    #     next_ent = next_q_ent[:,:,-1] # (b, T)
+
+
+    #     target_q_value = np.zeros([B, T, q_dim + 1], dtype=np.float32)
+
+  
+    #     for t1 in range(T): # T: 10.
+            
+    #         tn = min(T - 1, t1 + args.n_step_loss - 1) # args.n_step_loss: 5. 
+    #         n = tn - t1 + 1
+
+    #         # n-step return.               
+    #         reward_sum = np.sum(reward[:, t1:t1+n, :] * self.gammas[:n], axis=1) # (b, q_dim) 
+    #         target_q_value[:, t1, :-1] = reward_sum + self.gammas[n] * next_q[:, t1+n-1] # (b, q_dim). 
+
+    #         ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[:n, 0], axis=1)  # (b,)                    
+    #         target_q_value[:, t1, -1] = ent_sum + self.gammas[n] * next_ent[:, t1+n-1] # (b,).             
+
+ 
+    #     target_q_value = rescaling_fn(target_q_value) # (b, T, q_dim+1)
+
+    #     return tf.convert_to_tensor(target_q_value, dtype=tf.float32)
 
 
 

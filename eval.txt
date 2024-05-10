@@ -348,3 +348,11 @@
 [700] mean_reward: 21.177
 [800] mean_reward: 19.099
 [0] mean_reward: 10.875
+[100] mean_reward: 11.186
+[200] mean_reward: 10.113
+[300] mean_reward: 7.499
+[400] mean_reward: 6.712
+[500] mean_reward: 6.412
+[0] mean_reward: 10.125
+[100] mean_reward: 10.283
+[200] mean_reward: 9.15
