@@ -342,3 +342,9 @@
 [100] mean_reward: 13.384
 [200] mean_reward: 13.004
 [300] mean_reward: 12.606
+[400] mean_reward: 14.424
+[500] mean_reward: 19.435
+[600] mean_reward: 17.243
+[700] mean_reward: 21.177
+[800] mean_reward: 19.099
+[0] mean_reward: 10.875

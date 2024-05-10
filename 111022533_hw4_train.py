@@ -18,7 +18,7 @@ from parameters import train_env_args
 from env_wrappers import make_train_env
 
   
-from experience_replay import PrioritizedExperienceReplay
+from replay_buffer import PrioritizedExperienceReplay
   
 
 
@@ -27,10 +27,11 @@ class Trainer:
     def __init__(self, ):
 
  
-        self.experience_replay = PrioritizedExperienceReplay()
+        self.replay_buffer = PrioritizedExperienceReplay()
 
         self.priority_exponent = args.start_priority_exponent # 0.2.
         self.end_priority_exponent = args.end_priority_exponent # 0.9.
+
         self.importance_exponent = args.start_importance_exponent
         self.end_importance_exponent = args.end_importance_exponent
 
@@ -40,9 +41,8 @@ class Trainer:
         if("load_ckpt" in args):
             self.agent.load(args.load_ckpt)
  
-        if("load_exp" in args):
-            # self.load_exp_replay(args.load_exp)
-            self.experience_replay.load_data(args.load_exp)
+        if("load_exp" in args): 
+            self.replay_buffer.load_data(args.load_exp)
 
 
         self.env = make_train_env()  
@@ -95,9 +95,95 @@ class Trainer:
         self.cur_half_seg = next_half_seg
         self.cur_obs = new_observation
         
-        self.experience_replay.push(seg, priority, self.priority_exponent)
+        self.replay_buffer.push(seg, priority, self.priority_exponent)
 
   
+
+
+
+    def train_step(self):
+
+
+        segment, exp_ids, importance_weights = \
+                        self.replay_buffer.sample(args.batch_size, self.importance_exponent)
+
+        losses, q_min, upd_priority = self.agent.train_step(\
+                        segment, importance_weights) # (5,), (q_dim,), (b,)
+
+        K.clear_session()
+        tf.keras.backend.clear_session() 
+
+        self.replay_buffer.update_priorities(exp_ids, upd_priority, self.priority_exponent)
+
+        return losses, q_min # (5,), (q_dim,)
+
+ 
+         
+ 
+
+    def train(self):
+        '''
+        batch size here is the number of segments to sample from experience replay
+        '''
+
+        priority_delta = (self.end_priority_exponent - self.priority_exponent) / args.prioritization_steps
+        importance_delta = (self.end_importance_exponent - self.importance_exponent) / args.prioritization_steps
+ 
+        
+        for _ in range(args.min_experience_len):
+            self.sample_new_experience() # will push to replay buffer.
+
+   
+        for t in range(args.epoch_size): 
+ 
+            self.sample_new_experience() # will push to replay buffer.
+
+            for _ in range(args.train_steps):
+
+                segment, exp_ids, importance_weights = \
+                                self.replay_buffer.sample(args.batch_size, self.importance_exponent)
+
+                losses, upd_priority = self.agent.train_step(segment, importance_weights) # (4,), (b,)
+
+                K.clear_session()
+                tf.keras.backend.clear_session() 
+
+                self.replay_buffer.update_priorities(exp_ids, upd_priority, self.priority_exponent)
+
+ 
+
+            self.importance_exponent += importance_delta
+            self.importance_exponent = min(self.end_importance_exponent, self.importance_exponent)
+
+            self.priority_exponent += priority_delta
+            self.priority_exponent = min(self.end_priority_exponent, self.priority_exponent)
+
+
+
+            if(t%args.log_interval==0):
+                
+                print(f'[{t}] losses: {losses.round(3)}')
+                with open("train.txt", "a") as f: f.write(f'[{t}] losses: {losses.round(3)}' + '\n')
+
+
+
+            if(t%args.save_interval==0):
+
+                self.agent.save(args.save_dir, f'ckpt-{t}.h5')
+
+            
+                mean_reward = self.eval(args.save_dir, f'ckpt-{t}.h5')
+                with open("eval.txt", "a") as f: 
+                    f.write(f'[{t}] mean_reward: {round(mean_reward, 3)}' + '\n')
+             
+
+
+
+            # if(t%args.save_exp_interval==0):            
+            #     self.replay_buffer.save_data(args.save_dir, 'exp.h5')
+
+
+
 
    
     def eval(self, ckpt_dir, ckpt_name):
@@ -147,87 +233,6 @@ class Trainer:
         return score
 
 
-
-    def train_step(self):
-
-
-        segment, exp_ids, importance_weights = \
-                        self.experience_replay.sample(args.batch_size, self.importance_exponent)
-
-        losses, q_min, upd_priority = self.agent.train_step(\
-                        segment, importance_weights) # (5,), (q_dim,), (b,)
-
-        K.clear_session()
-        tf.keras.backend.clear_session() 
-
-        self.experience_replay.update_priorities(exp_ids, upd_priority, self.priority_exponent)
-
-        return losses, q_min # (5,), (q_dim,)
-
- 
-         
- 
-
-    def train(self):
-        '''
-        batch size here is the number of segments to sample from experience replay
-        '''
-
-        priority_delta = (self.end_priority_exponent - self.priority_exponent) / args.prioritization_steps
-        importance_delta = (self.end_importance_exponent - self.importance_exponent) / args.prioritization_steps
- 
-        
-        for _ in trange(args.min_experience_len):             
-            self.sample_new_experience() # will push to replay buffer.
-
-   
-        for t in range(args.epoch_size): 
- 
-            self.sample_new_experience() # will push to replay buffer.
-
-            for _ in range(args.train_steps):
-
-                segment, exp_ids, importance_weights = \
-                                self.experience_replay.sample(args.batch_size, self.importance_exponent)
-
-                losses, upd_priority = self.agent.train_step(segment, importance_weights) # (4,), (b,)
-
-                K.clear_session()
-                tf.keras.backend.clear_session() 
-
-                self.experience_replay.update_priorities(exp_ids, upd_priority, self.priority_exponent)
-
- 
-
-            self.importance_exponent += importance_delta
-            self.importance_exponent = min(self.end_importance_exponent, self.importance_exponent)
-
-            self.priority_exponent += priority_delta
-            self.priority_exponent = min(self.end_priority_exponent, self.priority_exponent)
-
-
-
-            if(t%args.log_interval==0):
-                
-                print(f'[{t}] losses: {losses.round(3)}')
-                with open("train.txt", "a") as f: f.write(f'[{t}] losses: {losses.round(3)}' + '\n')
-
-
-
-            if(t%args.save_interval==0):
-
-                self.agent.save(args.save_dir, f'ckpt-{t}.h5')
-
-            
-                mean_reward = self.eval(args.save_dir, f'ckpt-{t}.h5')
-                with open("eval.txt", "a") as f: 
-                    f.write(f'[{t}] mean_reward: {round(mean_reward, 3)}' + '\n')
-             
-
-
-
-            # if(t%args.save_exp_interval==0):            
-            #     self.experience_replay.save_data(args.save_dir, 'exp.h5')
 
 
             

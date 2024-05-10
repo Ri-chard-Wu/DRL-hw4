@@ -107,9 +107,9 @@ trainer_args = AttrDict({
 
     "save_dir": "ckpt",    
     # "load_ckpt": ["ckpt/ckpt-4800.h5", "ckpt/best.h5"][0],
-    "load_exp": "ckpt/exp.h5",
+    # "load_exp": "ckpt/exp.h5",
 
-    "min_experience_len": [0, 2, 50][0],
+    "min_experience_len": [0, 2, 50][2],
     
     "epoch_size": 100000000, #500,
     "batch_size": 256,

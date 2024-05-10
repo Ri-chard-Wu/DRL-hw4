@@ -62,6 +62,54 @@ class SAC:
 
 
 
+
+
+    # def compute_target_q(self,                 
+    #             next_q_ent, # (b, T=10, q_dim+1). 
+    #             ent, # (b, T). 
+    #             reward,  # (b, T, q_dim). 
+    #             is_done, # (b, T). 
+    #             mask # (b, T).
+    #         ):
+ 
+    #     mask = mask.numpy()[:,:,None]
+    #     next_q_ent = next_q_ent.numpy() 
+    #     ent = ent.numpy() 
+    #     reward = reward.numpy() * mask
+    #     is_done = is_done.numpy()[:,:,None]
+        
+
+    #     B, T, q_dim = reward.shape # shape == (b, 10, q_dim)
+
+      
+    #     next_q_ent = mask * (1.0 - is_done) * inv_rescaling_fn(next_q_ent) # (b, T, q_dim+1). 
+
+    #     next_q = next_q_ent[:,:,:-1] # (b, T, q_dim)
+    #     next_ent = next_q_ent[:,:,-1] # (b, T)
+
+
+    #     target_q_value = np.zeros([B, T, q_dim + 1], dtype=np.float32)
+
+  
+    #     for t1 in range(T): # T: 10.
+            
+    #         tn = min(T - 1, t1 + args.n_step_loss - 1) # args.n_step_loss: 5. 
+    #         n = tn - t1 + 1
+
+    #         # n-step return.               
+    #         reward_sum = np.sum(reward[:, t1:t1+n, :] * self.gammas[:n], axis=1) # (b, q_dim) 
+    #         target_q_value[:, t1, :-1] = reward_sum + (self.gammas[1]**tn) * next_q[:, t1+n-1] # (b, q_dim). 
+
+    #         ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[1:n+1, 0], axis=1)  # (b,)                    
+    #         target_q_value[:, t1, -1] = ent_sum + (self.gammas[1]**tn) * next_ent[:, t1+n-1] # (b,).             
+
+ 
+    #     target_q_value = rescaling_fn(target_q_value) # (b, T, q_dim+1)
+
+    #     return tf.convert_to_tensor(target_q_value, dtype=tf.float32)
+
+
+
     def compute_target_q(self,                 
                 next_q_ent, # (b, T=10, q_dim+1). 
                 ent, # (b, T). 
@@ -208,32 +256,10 @@ class SAC:
 
         a, log_prob = self.actor_predict(obs[:, 1:]) # (b, T+1, action_dim), # (b, T+1).
         next_q = self.critic_tgt_predict(obs[:, 1:], a) # (b, T+1, q_dim+1).
-
  
         next_ent = -self.sac_alpha * log_prob # (n_env, T+1).
-
-        # next_q = next_q[:, 1:]
-        # next_ent = next_ent[:, 1:]
-        
-
-        q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
-                obs, actions, rewards, is_done, mask, next_q, next_ent)
-
-        
-        priority_loss = self.calculate_priority(q_1_loss, q_2_loss, segment_length)  # (n_env,).
-        return priority_loss # (n_env,).
-
-    
-
-
-    def calc_q_value_loss(self, obs, actions, rewards, is_done, mask, next_q, next_ent):
-        '''        
-        - T==10.
-        - obs: (n_env, T+1, dim). actions, rewards: (n_env, T, q_dim). is_done: (n_env, T). 
-        - mask: (n_env, T).
-        ''' 
-        
-
+ 
+ 
         next_q = next_q[:, -args.n_step_train:] # no effect.
         next_ent = next_ent[:, -args.n_step_train:]
         rewards = rewards[:, -args.n_step_train:] # no effect.
@@ -241,8 +267,6 @@ class SAC:
         
         target_q = self.compute_target_q(next_q, next_ent, rewards, is_done, mask)
         
-
-
         mask = tf.expand_dims(mask, axis=-1)
 
         current_q_1 = self.critic1(obs[:, :-1], actions)[:, -args.n_step_train:] # (n_env, T, q_dim+1).         
@@ -254,8 +278,13 @@ class SAC:
         q_2_loss = 0.5 * mask * (self.q_weights * ((current_q_2 - target_q) ** 2)) # (b, T, q_dim+1).             
         q_2_loss = tf.reduce_sum(q_2_loss, axis=-1) # (n_env, T).         
 
-        return q_1_loss, q_2_loss
+ 
+        priority_loss = self.calculate_priority(q_1_loss, q_2_loss, segment_length)  # (n_env,).
+        
+        return priority_loss # (n_env,).
 
+    
+ 
 
 
     def update_critic_target(self):
@@ -406,7 +435,7 @@ class SAC:
         log_prob = tf.convert_to_tensor(log_prob.numpy(), dtype=tf.float32) # detach. # (b, T).
         ent_tgt = -action_shape
         with tf.GradientTape() as tape:    
-            alpha_loss = -(self.sac_log_alpha * (log_prob + ent_tgt)) * mask # (b, T).
+            alpha_loss = (self.sac_log_alpha * (-log_prob - ent_tgt)) * mask # (b, T).
             
             alpha_loss = tf.math.reduce_mean((importance_weights * \
                         tf.reduce_sum(alpha_loss, axis=-1) / segment_length)) # (,)
