@@ -1,13 +1,15 @@
-import pickle
+
 import numpy as np
-from time import time
+
+import h5py
+import os
 
 from parameters import observation_shape, action_shape
 from parameters import train_env_args
 from parameters import critic_args
 
 
-class SegmentTree:
+class Tree:
 
     def __init__(
             self, 
@@ -31,6 +33,7 @@ class SegmentTree:
         self._is_done = np.zeros((capacity, segment_len), dtype=np.float32)
  
   
+    
 
     def _propagate(self, index):
 
@@ -123,7 +126,7 @@ class PrioritizedExperienceReplay:
  
 
         self.capacity = capacity
-        self.tree = SegmentTree(capacity, critic_args.q_value_dim)
+        self.tree = Tree(capacity, critic_args.q_value_dim)
 
 
     def push(self, segment, priority_loss, alpha):
@@ -195,4 +198,37 @@ class PrioritizedExperienceReplay:
 
 
 
+    def save_data(self, dir_name, name):
+
+        print('saving exp_replay...')
  
+        path = os.path.join(dir_name, name)
+
+
+        f = h5py.File(path, mode='w')
+        data_group = f.create_group('experience_replay')
+        # data_group.create_dataset('capacity', data=self.experience_replay.capacity)
+
+        for k, v in self.tree.__dict__.items():
+            
+            if hasattr(v, '__len__'):
+                data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
+            else:
+                data_group.create_dataset(k, data=v)  # can't compress scalars
+
+        f.close()        
+
+
+
+    def load_data(self, path):
+
+        print('loading exp replay...')
+  
+        f = h5py.File(path, mode='r')
+        data_group = f['experience_replay']
+
+        for key in self.tree.__dict__:
+            loaded_value = data_group[key][()]
+            self.tree.__dict__.update({key: loaded_value})
+
+        f.close()

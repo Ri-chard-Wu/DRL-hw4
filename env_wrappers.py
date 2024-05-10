@@ -172,7 +172,7 @@ class RewardShapingWrapper(gym.Wrapper):
         '''
         (2,),(2,).
         ''' 
-        eps = 1e-2
+        eps = 0.1
 
         v_body_norm = np.linalg.norm(v_body, ord=2)
         v_tgt_norm = np.linalg.norm(v_tgt, ord=2)
@@ -182,7 +182,7 @@ class RewardShapingWrapper(gym.Wrapper):
 
         cos = np.dot(v_tgt, v_body) # (,).
         
-        return cos * v_body_norm
+        return np.sign(cos) * v_body_norm / 1.4
  
 
 
@@ -242,8 +242,8 @@ class RewardShapingWrapper(gym.Wrapper):
     
         clp = self.crossing_legs_penalty(state_desc)        
         vdp = self.v_tgt_deviation_penalty(reward, v_body, v_tgt)
-        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) * 1.5               
-        dep = self.dense_effort_penalty(action) * 0.2
+        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) #* 1.5               
+        dep = self.dense_effort_penalty(action) #* 0.2
         tab = self.target_achieve_bonus(v_tgt)
 
         return [reward, clp, vdp, pvb, dep, tab]

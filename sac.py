@@ -98,7 +98,7 @@ class SAC:
             reward_sum = np.sum(reward[:, t1:t1+n, :] * self.gammas[:n], axis=1) # (b, q_dim) 
             target_q_value[:, t1, :-1] = reward_sum + self.gammas[n] * next_q[:, t1+n-1] # (b, q_dim). 
 
-            ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[1:n+1, 0], axis=1)  # (b,)                    
+            ent_sum = np.sum(ent[:, t1:t1+n] * self.gammas[:n, 0], axis=1)  # (b,)                    
             target_q_value[:, t1, -1] = ent_sum + self.gammas[n] * next_ent[:, t1+n-1] # (b,).             
 
  
@@ -206,19 +206,18 @@ class SAC:
       
 
 
-        a, log_prob = self.actor_predict(obs) # (b, T+1, action_dim), # (b, T+1).
-        next_q = self.critic_tgt_predict(obs, a) # (b, T+1, q_dim+1).
+        a, log_prob = self.actor_predict(obs[:, 1:]) # (b, T+1, action_dim), # (b, T+1).
+        next_q = self.critic_tgt_predict(obs[:, 1:], a) # (b, T+1, q_dim+1).
 
-
-        
+ 
         next_ent = -self.sac_alpha * log_prob # (n_env, T+1).
 
-        next_q = next_q[:, 1:]
-        next_ent = next_ent[:, 1:]
+        # next_q = next_q[:, 1:]
+        # next_ent = next_ent[:, 1:]
         
 
         q_1_loss, q_2_loss = self.calc_q_value_loss( # (n_env, T), (n_env, T)
-            obs, actions, rewards, is_done, mask, next_q, next_ent)
+                obs, actions, rewards, is_done, mask, next_q, next_ent)
 
         
         priority_loss = self.calculate_priority(q_1_loss, q_2_loss, segment_length)  # (n_env,).
@@ -246,18 +245,7 @@ class SAC:
 
         mask = tf.expand_dims(mask, axis=-1)
 
-        current_q_1 = self.critic1(obs[:, :-1], actions)[:, -args.n_step_train:] # (n_env, T, q_dim+1).        
-
-        # print(f'\n\n\ntarget_q.shape: {target_q.shape}, current_q_1.shape: {current_q_1.shape}, mask.shape: {mask.shape}')            
-
-        # print('## a')
-        # a = (current_q_1 - target_q)
-        # print('## b')
-        # b = self.q_weights * (a ** 2)
-        # print('## c')
-        # c = mask * b
-        # print('## ')
-
+        current_q_1 = self.critic1(obs[:, :-1], actions)[:, -args.n_step_train:] # (n_env, T, q_dim+1).         
         q_1_loss = 0.5 * mask * (self.q_weights * ((current_q_1 - target_q) ** 2)) # (b, T, q_dim+1).   
         q_1_loss = tf.reduce_sum(q_1_loss, axis=-1) # (n_env, T). 
     

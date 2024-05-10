@@ -102,7 +102,7 @@ trainer_args = AttrDict({
 
  
     "log_interval": 5,
-    "save_interval": [1, 200][1],
+    "save_interval": [1, 100][1],
     "save_exp_interval": [1, 500][1],
 
     "save_dir": "ckpt",    
