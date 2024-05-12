@@ -1,27 +1,29 @@
-import pickle
+
 import numpy as np
-from time import time
+
+import h5py
+import os
 
 from parameters import observation_shape, action_shape
 from parameters import train_env_args
 from parameters import critic_args
 
 
-class SegmentTree:
+class Tree:
+
     def __init__(
             self, 
             capacity, # 0.25e6. 
             reward_dim, # 6.       
     ):
+        
         self._capacity = capacity
         self._index = 0
         self._full = False
-
-
+ 
         # _sum_tree: idx -> priority.
         self._sum_tree = np.zeros((2 * capacity - 1,), dtype=np.float32)
-
-
+ 
         segment_len = train_env_args.segment_len
 
         # 250000 * (11 * 339 + 10*(22+6+1)) * 4 Bytes
@@ -31,6 +33,7 @@ class SegmentTree:
         self._is_done = np.zeros((capacity, segment_len), dtype=np.float32)
  
   
+    
 
     def _propagate(self, index):
 
@@ -57,6 +60,7 @@ class SegmentTree:
         self._rewards[self._index] = reward
         self._is_done[self._index] = done
  
+
     def append(self, data, priority):
         '''
         priority: (,).
@@ -110,29 +114,12 @@ class SegmentTree:
         )
         return result
 
-
-    def get(self, data_index):
-        data = self._get_data_by_idx(data_index % self._capacity)
-        return data
-
-
+ 
     def total(self): # sum of priorities of all data.
         return self._sum_tree[0]
 
-
-    def save_raw_data(self, filename):
-        with open(filename, 'wb') as f:
-            pickle.dump(
-                {
-                    'observations': self._observations,
-                    'actions': self._actions,
-                    'rewards': self._rewards,
-                    'is_done': self._is_done
-                }, f
-            )
-
-
-
+ 
+ 
 
 class PrioritizedExperienceReplay:
 
@@ -140,7 +127,7 @@ class PrioritizedExperienceReplay:
  
 
         self.capacity = capacity
-        self.tree = SegmentTree(capacity, critic_args.q_value_dim)
+        self.tree = Tree(capacity, critic_args.q_value_dim)
 
 
     def push(self, segment, priority_loss, alpha):
@@ -212,4 +199,37 @@ class PrioritizedExperienceReplay:
 
 
 
+    def save_data(self, dir_name, name):
+
+        print('saving exp_replay...')
  
+        path = os.path.join(dir_name, name)
+
+
+        f = h5py.File(path, mode='w')
+        data_group = f.create_group('experience_replay')
+        # data_group.create_dataset('capacity', data=self.experience_replay.capacity)
+
+        for k, v in self.tree.__dict__.items():
+            
+            if hasattr(v, '__len__'):
+                data_group.create_dataset(k, data=v, compression="lzf")  # can compress only array-like structures
+            else:
+                data_group.create_dataset(k, data=v)  # can't compress scalars
+
+        f.close()        
+
+
+
+    def load_data(self, path):
+
+        print('loading exp replay...')
+  
+        f = h5py.File(path, mode='r')
+        data_group = f['experience_replay']
+
+        for key in self.tree.__dict__:
+            loaded_value = data_group[key][()]
+            self.tree.__dict__.update({key: loaded_value})
+
+        f.close()
