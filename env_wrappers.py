@@ -252,8 +252,8 @@ class RewardShapingWrapper(gym.Wrapper):
     
         clp = self.crossing_legs_penalty(state_desc)        
         vdp = self.v_tgt_deviation_penalty(reward, v_body, v_tgt)
-        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) #* 1.5               
-        dep = self.dense_effort_penalty(action) #* 0.2
+        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) * 1.5               
+        dep = self.dense_effort_penalty(action) * 0.2
         tab = self.target_achieve_bonus(v_tgt)
 
         return [reward, clp, vdp, pvb, dep, tab]
@@ -358,22 +358,100 @@ class NormalizedActions(gym.ActionWrapper):
 
 
 
-def make_env(seed):
+
+class RandomPoseInitEnv(gym.Wrapper):
+
+    def __init__(self, env=None, anneal_start_step=1000, anneal_end_step=2000, **kwargs):        
+        super().__init__(env)
+        # anneal pose to zero-pose
+        self.anneal_start_step = anneal_start_step
+        self.anneal_end_step = anneal_end_step
+        self.anneal_step = 0
+
+    def reset(self, **kwargs): # kwargs: no kwargs.
+        '''
+        Default init pose:
+
+        INIT_POSE = np.array([
+        
+            0, # forward speed
+            0, # rightward speed
+            0.94, # pelvis height
+            0*np.pi/180, # trunk lean
+
+            0*np.pi/180, # [right] hip adduct
+            0*np.pi/180, # hip flex
+            0*np.pi/180, # knee extend
+            0*np.pi/180, # ankle flex
+
+            0*np.pi/180, # [left] hip adduct
+            0*np.pi/180, # hip flex
+            0*np.pi/180, # knee extend
+            0*np.pi/180]) # ankle flex
+
+        '''
+
+        seed = kwargs.get('seed', None)
+        if seed is not None: # no
+            state = np.random.get_state()
+            np.random.seed(seed)
+
+        x_vel = np.clip(np.abs(np.random.normal(0, 1.5)), a_min=None, a_max=3.5) # forward speed
+        y_vel = np.random.uniform(-0.15, 0.15) # rightward speed
+
+        # foot in the air
+        leg1 = [np.random.uniform(0, 0.1), np.random.uniform(-1, 0.3), np.random.uniform(-1.3, -0.5), 
+                np.random.uniform(-0.9, -0.5)]
+        
+        # foot on the ground
+        leg2 = [np.random.uniform(0, 0.1), np.random.uniform(-0.25, 0.05), np.random.uniform(-0.5, -0.25), -0.25]
+
+        pose = [x_vel, # forward speed
+                y_vel, # rightward speed
+                0.94,
+                np.random.uniform(-0.15, 0.15)
+                ]
+
+        if y_vel > 0: # going to right.
+            pose += leg1 + leg2 # right leg + left leg.
+        else: # going to left.
+            pose += leg2 + leg1 # right leg + left leg.
+
+
+        pose = np.asarray(pose)
+
+        # at the end, everything is 0 (no random) except pelvit height (0.94).
+        pose *= 1 - np.clip(
+            (self.anneal_step - self.anneal_start_step)/(self.anneal_end_step - self.anneal_start_step), 0, 1)
+        pose[2] = 0.94
+
+
+        self.anneal_step += 1
+
+        if seed is not None: # no
+            np.random.set_state(state)
+
+        return self.env.reset(init_pose=pose, **kwargs)
+
+
+def make_env(seed, visualize=False):
 
     def _make_env():
 
         env = L2M2019Env(
-            visualize=False,
+            visualize=visualize,
             integrator_accuracy=args.accuracy,
             difficulty=args.difficulty,
             seed=seed
         )
 
+        env = RandomPoseInitEnv(env)     
         env = FrameSkipWrapper(env)
-        env = SegmentPadWrapper(env)
-        # env = NormalizedActions(env)        
+        env = SegmentPadWrapper(env)          
         env = RewardShapingWrapper(env)
-        env = NormalizedActions(env)        
+        env = NormalizedActions(env)     
+        
+           
 
         return env
 
@@ -393,6 +471,15 @@ def make_train_env():
   
 
 
+# action_space = gym.spaces.Box(low=0, high=1, shape=(22,), dtype=np.float32)
+  
+# env = make_env(2, True)()
 
 
- 
+# while(1):
+    
+#     obs = env.reset()
+
+#     for i in range(10):
+
+#         obs, reward, done, info = env.step(action_space.sample())

@@ -22,6 +22,17 @@ from replay_buffer import PrioritizedExperienceReplay
   
 
 
+
+
+
+
+
+
+
+
+
+
+
 class Trainer:
  
     def __init__(self, ):
@@ -70,41 +81,13 @@ class Trainer:
          
         orders = [(1, 0, 2), (1, 0, 2), (1, 0, 2), (1, 0)]
 
+
+        # print()
+
         seg = map(np.array, (obs_seg, act_seg, rew_seg, don_seg))        
         seg = [s.transpose(order) for s, order in zip(seg, orders)]
 
         return seg, obs 
-
-  
-
-        # observations = []
-        # actions = []
-        # rewards = []
-        # is_done = []
-
-        # for step in range(self.segment_len // 2): # 10 // 2 == 5.
-
-        #     observations.append(obs)
- 
-        #     action, reward, obs, done = self._step(obs)
-
-          
-        #     # self.q_weights: np.array([2.0, 1.0, 1.0, 1.0, 1.0, 1.0]).
-        #     # reward: (n_env, 6).
-        #     self.reward += (self.q_weights * reward).sum(axis=-1)  # (n_env,)
-        #     self.episode_length += (1.0 - done)  # increase episode len only for alive environments
-        #     actions.append(action)
-        #     rewards.append(reward)
-        #     is_done.append(done)
-
-        #     if np.any(done):
-        #         self.reward *= (1.0 - done)
-        #         self.episode_length *= (1.0 - done)
-
-        # segment = (np.array(observations), np.array(actions), np.array(rewards), np.array(is_done))
-      
-        # return segment, observation 
-
 
 
 
@@ -124,40 +107,13 @@ class Trainer:
         priority = self.agent.calculate_priority_loss(seg) # (n_env,).
  
      
-        self.cur_half_seg = next_half_seg
-        self.cur_obs = new_observation
+
+        self.cur_half_seg, self.cur_obs = next_half_seg, new_observation         
+        # if(any(list(next_half_seg)[3])):
+        #     self.cur_half_seg, self.cur_obs = self.sample_half_segment(new_observation)  
+
         
         self.replay_buffer.push(seg, priority, self.priority_exponent)
-
-
-
-
-
-        # half_segment, new_observation = self._sample_half_segment(self.cur_obs)
-  
-        # # segment = self._concatenate_segments(half_segment) 
-        # shapes = [(1, 0, 2), (1, 0, 2), (1, 0, 2), (1, 0)]
-
-        # segment = [
-        #     np.concatenate((a, b)).transpose(c) # observation, action, reward: (n_env, T, dim), done: (n_env, T).
-        #     for a, b, c in zip(self.cur_half_seg, half_segment, shapes)
-        # ] 
-
-        # segment[0] = np.concatenate((segment[0], new_observation[:, None, :]), 1) # (n_env, T+1, dim)
-
-        # # segment - obs: (n_env, T+1, dim). act, rew: (n_env, T, dim). don: (n_env, T). T==10.
-        # priority_loss = self.agent.calculate_priority_loss(segment) # (n_env,).
- 
-     
-        # self.cur_half_seg = half_segment
-        # self.current_observation = new_observation
-
-
-        # # segment - obs: (n_env, T+1, dim), act, rew: (n_env, T, dim), don: (n_env, T). T==10.
-        # # priority_loss: (n_env,)
-        # # return segment, priority_loss    
-
-        # self.replay_buffer.push(segment, priority_loss, self.priority_exponent)
 
 
 
@@ -258,7 +214,9 @@ class Trainer:
 
         env = L2M2019Env(visualize=False, difficulty=2)
 
-        for episode in range(10):
+        n = 6
+
+        for episode in range(n):
 
             obs = env.reset()
             start_time = time.time()
@@ -285,7 +243,7 @@ class Trainer:
 
         env.close()
 
-        score = total_reward / 10
+        score = total_reward / n
         print(f"Final Score: {score}")
 
         return score

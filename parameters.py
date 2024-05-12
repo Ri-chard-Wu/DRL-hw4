@@ -102,12 +102,12 @@ trainer_args = AttrDict({
 
  
     "log_interval": 5,
-    "save_interval": [1, 100][1],
+    "save_interval": [1, 200][1],
     "save_exp_interval": [1, 500][1],
 
     "save_dir": "ckpt",    
-    # "load_ckpt": ["ckpt/ckpt-5400.h5", "ckpt/best.h5"][0],
-    # "load_exp": "ckpt/exp.h5",
+    "load_ckpt": ["ckpt/ckpt-0.h5", "ckpt/best.h5"][1],
+    # "load_exp": "ckpt/exp-1.h5",
 
     "min_experience_len": [0, 2, 50][2],
     
