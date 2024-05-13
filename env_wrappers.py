@@ -251,8 +251,8 @@ class RewardShapingWrapper(gym.Wrapper):
  
     
         clp = self.crossing_legs_penalty(state_desc)        
-        vdp = self.v_tgt_deviation_penalty(reward, v_body, v_tgt)
-        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) * 1.5               
+        vdp = self.v_tgt_deviation_penalty(reward, v_body, v_tgt) * 2.5 
+        pvb = self.pelvis_velocity_bonus(v_tgt, v_body) * 2.5               
         dep = self.dense_effort_penalty(action) * 0.2
         tab = self.target_achieve_bonus(v_tgt)
 
@@ -445,7 +445,7 @@ def make_env(seed, visualize=False):
             seed=seed
         )
 
-        env = RandomPoseInitEnv(env)     
+        # env = RandomPoseInitEnv(env)     
         env = FrameSkipWrapper(env)
         env = SegmentPadWrapper(env)          
         env = RewardShapingWrapper(env)
